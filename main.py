@@ -28,7 +28,7 @@ from typing import Any, Dict
 
 from benchmarks import REGISTRY, list_all
 from src import Benchmark
-from src.utils import assert_server_up, detect_model
+from src.utils import assert_server_up, detect_max_model_len, detect_model, truncate_payload
 from src.worker import Worker
 from vars import init_vars
 
@@ -39,6 +39,8 @@ def run_benchmark(
     benchmark: Benchmark,
     endpoint: str,
     stop_after: int = 0,
+    truncate: bool = False,
+    max_model_len: int = 0,
 ):
     """
     Run a single benchmark: iterate its entries, send HTTP requests,
@@ -63,6 +65,9 @@ def run_benchmark(
 
         url = f"{endpoint.rstrip('/')}/v1{uri}"
         headers = {"Content-Type": "application/json"}
+
+        if truncate and max_model_len > 0:
+            payload = truncate_payload(endpoint, payload, max_model_len)
 
         t0 = time.monotonic()
         w.process(name=name, url=url, headers=headers, payload=payload)
@@ -114,6 +119,11 @@ def main():
         help="Stop after processing this many entries (for quick testing; default: 0, meaning no limit)",
     )
     ap.add_argument(
+        "--truncate",
+        action="store_true",
+        help="Truncate inputs that exceed the model's context window",
+    )
+    ap.add_argument(
         "benchmarks",
         nargs="*",
         help="Benchmark names to run",
@@ -155,6 +165,11 @@ def main():
     model = args.model or detect_model(endpoint)
     print(f"Model: {model}")
 
+    max_model_len = 0
+    if args.truncate:
+        max_model_len = detect_max_model_len(endpoint)
+        print(f"Max model length: {max_model_len} (truncation enabled)")
+
     os.makedirs(data_dir, exist_ok=True)
 
     # Run benchmarks sequentially
@@ -166,7 +181,8 @@ def main():
         bench_cls = REGISTRY[name]
         benchmark = bench_cls.create(model=model, cache_dir=data_dir)
         n, ok, fail = run_benchmark(
-            vars, name, benchmark, endpoint, stop_after=args.stop_after
+            vars, name, benchmark, endpoint, stop_after=args.stop_after,
+            truncate=args.truncate, max_model_len=max_model_len,
         )
         total_n += n
         total_ok += ok
