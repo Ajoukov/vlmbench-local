@@ -159,7 +159,7 @@ class Worker(threading.Thread):
 
         except requests.exceptions.Timeout:
             self._stats.record_timeout(request_size)
-            print(f"[TIMEOUT] {name} {self.name}")
+            print(f"[TIMEOUT] {name} {self.name} request timed out after {self._rto} seconds")
             return None
 
         except Exception as e:
