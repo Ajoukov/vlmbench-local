@@ -22,14 +22,14 @@ Examples:
 
 import argparse
 import os
+import queue
 import sys
-import time
 from typing import Any, Dict
 
 from benchmarks import REGISTRY, list_all
 from src import Benchmark
 from src.utils import assert_server_up, detect_max_model_len, detect_model, truncate_payload
-from src.worker import Worker
+from src.worker import Worker, WorkerStats
 from vars import init_vars
 
 
@@ -38,6 +38,7 @@ def run_benchmark(
     name: str,
     benchmark: Benchmark,
     endpoint: str,
+    clients: int,
     stop_after: int = 0,
     truncate: bool = False,
     max_model_len: int = 0,
@@ -47,7 +48,21 @@ def run_benchmark(
     and print the status code for each.
     """
     print(f"\n=== Benchmark: {name} ===")
-    w = Worker(request_timeout=vars["REQUEST_TIMEOUT"])
+    jobs: "queue.Queue[Dict[str, Any] | None]" = queue.Queue()
+    stats = WorkerStats()
+
+    workers = [
+        Worker(
+            request_timeout=vars["REQUEST_TIMEOUT"],
+            jobs=jobs,
+            stats=stats,
+            worker_id=index + 1,
+        )
+        for index in range(max(1, clients))
+    ]
+
+    for worker in workers:
+        worker.start()
 
     count = 0
     for result in benchmark.run():
@@ -69,19 +84,29 @@ def run_benchmark(
         if truncate and max_model_len > 0:
             payload = truncate_payload(endpoint, payload, max_model_len)
 
-        t0 = time.monotonic()
-        w.process(name=name, url=url, headers=headers, payload=payload)
-        elapsed = time.monotonic() - t0
+        # each worker will process this job and update stats
+        for _ in workers:
+            jobs.put(
+                {
+                    "name": name,
+                    "url": url,
+                    "headers": headers,
+                    "payload": payload,
+                }
+            )
 
-        remaining = vars["REQUEST_TIMEOUT"] - elapsed
-        if remaining > 0:
-            # print(f"Sleeping {remaining:.1f}s (ran {elapsed:.1f}s / {vars['REQUEST_TIMEOUT']}s timeout)")
-            time.sleep(remaining)
+    for _ in workers:
+        jobs.put(None)
 
-    stats = w.stats()
-    n = stats["total_requests"]
-    ok = stats["success"]
-    fail = stats["http_error"] + stats["timeout"] + stats["exception"]
+    jobs.join()
+
+    for worker in workers:
+        worker.join()
+
+    summary = stats.stats()
+    n = summary["total_requests"]
+    ok = summary["success"]
+    fail = summary["http_error"] + summary["timeout"] + summary["exception"]
 
     print(f"--- {name}: {n} requests, {ok} ok, {fail} failed ---")
 
@@ -124,6 +149,12 @@ def main():
         help="Truncate inputs that exceed the model's context window",
     )
     ap.add_argument(
+        "--clients",
+        type=int,
+        default=1,
+        help="Number of concurrent client workers (default: 1)",
+    )
+    ap.add_argument(
         "benchmarks",
         nargs="*",
         help="Benchmark names to run",
@@ -140,6 +171,10 @@ def main():
     if not args.benchmarks:
         ap.print_usage()
         print("Error: specify at least one benchmark (or use --list).", file=sys.stderr)
+        sys.exit(2)
+
+    if args.clients < 1:
+        print("Error: --clients must be >= 1.", file=sys.stderr)
         sys.exit(2)
 
     # Validate benchmark names
@@ -181,7 +216,8 @@ def main():
         bench_cls = REGISTRY[name]
         benchmark = bench_cls.create(model=model, cache_dir=data_dir)
         n, ok, fail = run_benchmark(
-            vars, name, benchmark, endpoint, stop_after=args.stop_after,
+            vars, name, benchmark, endpoint, clients=args.clients,
+            stop_after=args.stop_after,
             truncate=args.truncate, max_model_len=max_model_len,
         )
         total_n += n

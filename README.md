@@ -20,7 +20,7 @@ A scalable benchmarking framework for evaluating LLM inference performance via t
 python main.py --list
 
 # Run benchmarks against a vLLM endpoint
-python main.py [--endpoint URL] [--model MODEL] [--data-dir DIR] benchmark1 [benchmark2 ...]
+python main.py [--endpoint URL] [--model MODEL] [--data-dir DIR] [--clients N] benchmark1 [benchmark2 ...]
 ```
 
 ### Options
@@ -29,6 +29,7 @@ python main.py [--endpoint URL] [--model MODEL] [--data-dir DIR] benchmark1 [ben
 * `--model MODEL` — Model name (auto-detected from endpoint if omitted)
 * `--data-dir DIR` — Dataset cache directory (default: `./data`)
 * `--stop-after N` — Stop after processing N entries (for quick testing; default: 0, meaning no limit)
+* `--clients N` — Number of concurrent client workers (default: `1`)
 
 ### Examples
 
@@ -41,6 +42,9 @@ python main.py --endpoint http://127.0.0.1:8080 --model facebook/opt-125m alpaca
 
 # Custom data directory
 python main.py --data-dir /tmp/datasets narrativeqa
+
+# Run with 10 concurrent clients
+python main.py --clients 10 narrativeqa
 ```
 
 ## Available Benchmarks
