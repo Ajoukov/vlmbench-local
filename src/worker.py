@@ -92,6 +92,7 @@ class Worker(threading.Thread):
         self._rto = request_timeout
         self._jobs = jobs
         self._stats = stats
+        self.worker_id = worker_id
 
     def run(self):
         while True:
