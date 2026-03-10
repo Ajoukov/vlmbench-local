@@ -1,9 +1,8 @@
 import requests
 import threading
 import time
-from typing import Optional
+import math
 
-TARGET_UTILIZATION = 0.95
 PROMPT_RATIO = 1.0 / 3.0
 REQUEST_INTERVAL_S = 1.0
 DEFAULT_REQUEST_TIMEOUT_S = 10.0
@@ -24,13 +23,9 @@ def _split_tokens_from_max_len(max_model_len: int) -> tuple[int, int]:
     return prompt_tokens, gen_tokens
 
 
-def _get_kv_usage(metrics_url: str, timeout_s: float) -> float:
-    r = requests.get(metrics_url, timeout=timeout_s)
-    r.raise_for_status()
-    for line in r.text.splitlines():
-        if "vllm:kv_cache_usage_perc" in line:
-            return float(line.split()[-1])
-    return 0.0
+def _estimate_concurrency(total_kv_tokens: int, prompt_tokens: int, gen_tokens: int) -> int:
+    per_request_tokens = max(1, prompt_tokens + gen_tokens)
+    return max(1, math.ceil(total_kv_tokens / per_request_tokens))
 
 
 def _keep_request_alive(
@@ -50,15 +45,18 @@ def _keep_request_alive(
         "stream": True,
     }
 
-    with requests.post(
-        completions_url,
-        json=payload,
-        stream=True,
-        timeout=request_timeout_s,
-    ) as r:
-        r.raise_for_status()
-        for _ in r.iter_lines():
-            pass
+    try:
+        with requests.post(
+            completions_url,
+            json=payload,
+            stream=True,
+            timeout=request_timeout_s,
+        ) as r:
+            r.raise_for_status()
+            for _ in r.iter_lines():
+                pass
+    except Exception as e:
+        print(f"Warmup request failed: {e}")
 
 
 def run_warmup_plugin(
@@ -66,34 +64,27 @@ def run_warmup_plugin(
     model: str,
     max_model_len: int,
     total_kv_tokens: int,
-    target_utilization: float = TARGET_UTILIZATION,
     request_interval_s: float = REQUEST_INTERVAL_S,
     request_timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S,
 ) -> None:
     completions_url = f"{endpoint.rstrip('/')}/v1/completions"
-    metrics_url = f"{endpoint.rstrip('/')}/metrics"
     prompt_tokens, gen_tokens = _split_tokens_from_max_len(max_model_len)
-
-    target_kv_tokens = int(total_kv_tokens * target_utilization)
+    estimated_concurrency = _estimate_concurrency(
+        total_kv_tokens=total_kv_tokens,
+        prompt_tokens=prompt_tokens,
+        gen_tokens=gen_tokens,
+    )
 
     print("=== Warmup plugin ===")
     print("Total KV tokens:", total_kv_tokens)
-    print("Target utilization:", target_utilization)
-    print("Target KV tokens:", target_kv_tokens)
     print("Max model length:", max_model_len)
     print("Prompt tokens:", prompt_tokens)
     print("Generation tokens:", gen_tokens)
+    print("Estimated per-request KV tokens:", prompt_tokens + gen_tokens)
+    print("Estimated warmup concurrency:", estimated_concurrency)
 
     threads = []
-
-    while True:
-        usage = _get_kv_usage(metrics_url, timeout_s=request_timeout_s)
-        print("KV usage:", usage)
-
-        if usage >= target_utilization:
-            print("Target KV utilization reached")
-            break
-
+    for _ in range(estimated_concurrency):
         t = threading.Thread(
             target=_keep_request_alive,
             args=(
@@ -107,10 +98,9 @@ def run_warmup_plugin(
         )
         t.start()
         threads.append(t)
-
         time.sleep(request_interval_s)
 
-    print("Warmup complete")
+    print("Warmup requests launched")
 
 
 def warmup(
@@ -118,14 +108,10 @@ def warmup(
     model: str,
     max_model_len: int,
     total_kv_tokens: int,
-    target_utilization: Optional[float] = None,
 ) -> None:
     run_warmup_plugin(
         endpoint=endpoint,
         model=model,
         max_model_len=max_model_len,
         total_kv_tokens=total_kv_tokens,
-        target_utilization=(
-            TARGET_UTILIZATION if target_utilization is None else target_utilization
-        ),
     )

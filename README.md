@@ -36,7 +36,7 @@ python main.py --warmup --total-kv-tokens 8388608
 * `--truncate` - Truncate input requests based on the maximum model len
 * `--warmup` — Run warmup plugin before benchmarks (or standalone)
 * `--total-kv-tokens N` — Total KV cache tokens (required with `--warmup`)
-* `--warmup-target-utilization F` — Warmup target KV utilization in `(0, 1]` (default: `0.95`)
+* Warmup estimates concurrency from `max_model_len` and `--total-kv-tokens` (no metrics polling)
 
 ### Examples
 
