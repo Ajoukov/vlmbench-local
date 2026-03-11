@@ -200,7 +200,7 @@ def main():
         "--total-kv-tokens",
         type=int,
         default=0,
-        help="Total KV cache tokens (required with --warmup)",
+        help="Total KV cache tokens (required with --simulate)",
     )
     ap.add_argument(
         "benchmarks",
@@ -218,10 +218,10 @@ def main():
             print(f"  {name}")
         return
 
-    if not args.benchmarks and not args.warmup:
+    if not args.benchmarks and not args.simulate:
         ap.print_usage()
         print(
-            "Error: specify at least one benchmark, or use --warmup (or use --list).",
+            "Error: specify at least one benchmark, or use --simulate (or use --list).",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -230,12 +230,8 @@ def main():
         print("Error: --clients must be >= 1.", file=sys.stderr)
         sys.exit(2)
 
-    if args.warmup and args.total_kv_tokens <= 0:
-        print("Error: --total-kv-tokens must be > 0 when --warmup is set.", file=sys.stderr)
-        sys.exit(2)
-
-    if not (0.0 < args.warmup_utilization_perc <= 100.0):
-        print("Error: --warmup-utilization-perc must be in (0, 100].", file=sys.stderr)
+    if args.simulate and args.total_kv_tokens <= 0:
+        print("Error: --total-kv-tokens must be > 0 when --simulate is set.", file=sys.stderr)
         sys.exit(2)
 
     # Validate benchmark names
@@ -262,7 +258,7 @@ def main():
     print(f"Model: {model}")
 
     max_model_len = 0
-    if args.truncate or args.warmup:
+    if args.truncate or args.simulate:
         max_model_len = detect_max_model_len(endpoint)
         if args.truncate:
             print(f"Max model length: {max_model_len} (truncation enabled)")
@@ -281,7 +277,7 @@ def main():
         )
 
     if not args.benchmarks:
-        print("No benchmarks requested; exiting after warmup.")
+        print("No benchmarks requested; exiting after simulation.")
         return
 
     os.makedirs(data_dir, exist_ok=True)
