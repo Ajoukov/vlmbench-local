@@ -8,12 +8,14 @@ Usage:
     ./main.py bench [--endpoint URL] [--model MODEL] [--data-dir DIR] benchmark1 [benchmark2 ...]
     ./main.py plugin --list
     ./main.py plugin simulator --total-kv-tokens N
+    ./main.py plugin simulator --help
 
 Examples:
     ./main.py bench --list
     ./main.py bench narrativeqa humaneval
     ./main.py plugin --list
     ./main.py plugin simulator --total-kv-tokens 8388608
+    ./main.py plugin simulator --help
 
 @authors:
     - Alexander "Sasha" Joukov (alexander.joukov@stonybrook.edu)
@@ -32,9 +34,8 @@ import time
 
 from benchmarks import REGISTRY as BENCHMARK_REGISTRY
 from benchmarks import list_all as list_benchmarks
-from plugins import REGISTRY as PLUGIN_REGISTRY
 from plugins import list_all as list_plugins
-from plugins.simulator.text_sources import TaskType
+from plugins import register_subcommands
 from src import Benchmark
 from src.utils import assert_server_up, detect_max_model_len, detect_model, truncate_payload
 from src.worker import Worker, WorkerStats
@@ -215,74 +216,22 @@ def main():
 
     plugin_parser = subparsers.add_parser(
         "plugin",
-        parents=[common],
         help="Run plugins",
         description="Run plugin workloads against a vLLM endpoint",
     )
     plugin_parser.add_argument(
         "--list", action="store_true", help="List available plugins and exit"
     )
-    plugin_parser.add_argument(
-        "plugin_name",
-        nargs="?",
-        help="Plugin name to run",
-    )
-    plugin_parser.add_argument(
-        "--total-kv-tokens",
-        type=int,
-        default=0,
-        help="Total KV cache tokens (required for plugin 'simulator')",
-    )
-    plugin_parser.add_argument(
-        "--prefix-length-perc",
-        type=float,
-        default=70.0,
-        help="Shared prefix percentage for simulator requests (default: 70)",
-    )
-    plugin_parser.add_argument(
-        "--n-runs",
-        type=int,
-        default=1,
-        help="Number of simulation runs (default: 1)",
-    )
-    plugin_parser.add_argument(
-        "--source-type",
-        default="wikitext",
-        help="Text source: wikitext | squad | wikipedia (default: wikitext)",
-    )
-    plugin_parser.add_argument(
-        "--task",
-        default=None,
-        choices=[t.value for t in TaskType],
-        help="Task type for simulator requests (default: random)",
-    )
-    plugin_parser.add_argument(
-        "--utilization-perc",
-        type=float,
-        default=100.0,
-        help="Percent of total KV tokens to target (default: 100)",
-    )
-    plugin_parser.add_argument(
-        "--request-interval-s",
-        type=float,
-        default=1.0,
-        help="Seconds to wait between requests (default: 1.0)",
-    )
-    plugin_parser.add_argument(
-        "--run-interval-s",
-        type=float,
-        default=2.0,
-        help="Seconds to wait between runs (default: 2.0)",
-    )
-    plugin_parser.add_argument(
-        "--request-timeout-s",
-        type=float,
-        default=10.0,
-        help="HTTP timeout per request in seconds (default: 10.0)",
-    )
+
+    plugin_subparsers = plugin_parser.add_subparsers(dest="plugin_name")
+    register_subcommands(plugin_subparsers, parents=[common])
 
     # Parse arguments
-    args = ap.parse_args()
+    argv = sys.argv[1:]
+    if len(argv) >= 3 and argv[0] == "plugin" and argv[1] in ("-h", "--help"):
+        argv = ["plugin", argv[2], "--help", *argv[3:]]
+
+    args = ap.parse_args(argv)
 
     if args.command is None:
         ap.print_usage()
@@ -372,14 +321,13 @@ def main():
                 print(f"  {name}")
             return
 
-        if not args.plugin_name:
+        if not getattr(args, "plugin_name", None):
             plugin_parser.print_usage()
             print("Error: specify a plugin name (or use --list).", file=sys.stderr)
             sys.exit(2)
 
-        if args.plugin_name not in PLUGIN_REGISTRY:
-            print(f"Error: Unknown plugin '{args.plugin_name}'.", file=sys.stderr)
-            print(f"Available: {list_plugins()}", file=sys.stderr)
+        if not hasattr(args, "plugin_runner"):
+            print(f"Error: Plugin '{args.plugin_name}' has no runnable handler.", file=sys.stderr)
             sys.exit(2)
 
         endpoint = args.endpoint
@@ -393,43 +341,20 @@ def main():
             sys.exit(1)
         print("Server is up.")
 
-        model = args.model or detect_model(endpoint)
-        print(f"Model: {model}")
+        resolved_model = args.model or detect_model(endpoint)
+        print(f"Model: {resolved_model}")
 
         max_model_len = detect_max_model_len(endpoint)
         print(f"Max model length: {max_model_len}")
 
         os.makedirs(data_dir, exist_ok=True)
 
-        if args.plugin_name == "simulator":
-            if args.total_kv_tokens <= 0:
-                print(
-                    "Error: --total-kv-tokens must be > 0 for plugin 'simulator'.",
-                    file=sys.stderr,
-                )
-                sys.exit(2)
+        args.cache_dir = data_dir
+        args.resolved_model = resolved_model
+        args.max_model_len = max_model_len
 
-            simulate_task = TaskType(args.task) if args.task else None
-            plugin_runner = PLUGIN_REGISTRY[args.plugin_name]
-            plugin_runner(
-                endpoint=endpoint,
-                model=model,
-                max_model_len=max_model_len,
-                total_kv_tokens=args.total_kv_tokens,
-                prefix_length_perc=args.prefix_length_perc,
-                n_runs=args.n_runs,
-                source_type=args.source_type,
-                task=simulate_task,
-                cache_dir=data_dir,
-                utilization_perc=args.utilization_perc,
-                request_interval_s=args.request_interval_s,
-                run_interval_s=args.run_interval_s,
-                request_timeout_s=args.request_timeout_s,
-            )
-            return
-
-        print(f"Error: Plugin '{args.plugin_name}' is registered but not dispatchable.", file=sys.stderr)
-        sys.exit(2)
+        args.plugin_runner(args)
+        return
 
 
 if __name__ == "__main__":

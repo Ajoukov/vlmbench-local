@@ -1,6 +1,7 @@
 import math
 import random
 import time
+import argparse
 from typing import Optional
 
 import requests
@@ -284,4 +285,91 @@ def simulate(
         task=task,
         cache_dir=cache_dir,
         utilization_perc=utilization_perc,
+    )
+
+
+def register_parser(
+    subparsers: argparse._SubParsersAction,
+    parents: list[argparse.ArgumentParser],
+) -> None:
+    """Register simulator plugin subcommand and its arguments."""
+    parser = subparsers.add_parser(
+        "simulator",
+        parents=parents,
+        help="Run KV-cache prefix simulator",
+        description="Run synthetic KV-cache prefix-sharing simulation",
+    )
+    parser.add_argument(
+        "--total-kv-tokens",
+        type=int,
+        required=True,
+        help="Total KV cache tokens to target",
+    )
+    parser.add_argument(
+        "--prefix-length-perc",
+        type=float,
+        default=70.0,
+        help="Shared prefix percentage for simulator requests (default: 70)",
+    )
+    parser.add_argument(
+        "--n-runs",
+        type=int,
+        default=1,
+        help="Number of simulation runs (default: 1)",
+    )
+    parser.add_argument(
+        "--source-type",
+        default="wikitext",
+        help="Text source: wikitext | squad | wikipedia (default: wikitext)",
+    )
+    parser.add_argument(
+        "--task",
+        default=None,
+        choices=[t.value for t in TaskType],
+        help="Task type for simulator requests (default: random)",
+    )
+    parser.add_argument(
+        "--utilization-perc",
+        type=float,
+        default=100.0,
+        help="Percent of total KV tokens to target (default: 100)",
+    )
+    parser.add_argument(
+        "--request-interval-s",
+        type=float,
+        default=REQUEST_INTERVAL_S,
+        help=f"Seconds to wait between requests (default: {REQUEST_INTERVAL_S})",
+    )
+    parser.add_argument(
+        "--run-interval-s",
+        type=float,
+        default=RUN_INTERVAL_S,
+        help=f"Seconds to wait between runs (default: {RUN_INTERVAL_S})",
+    )
+    parser.add_argument(
+        "--request-timeout-s",
+        type=float,
+        default=DEFAULT_REQUEST_TIMEOUT_S,
+        help=f"HTTP timeout per request in seconds (default: {DEFAULT_REQUEST_TIMEOUT_S})",
+    )
+    parser.set_defaults(plugin_runner=run_from_args)
+
+
+def run_from_args(args: argparse.Namespace) -> None:
+    """Run simulator from parsed CLI args."""
+    simulate_task = TaskType(args.task) if args.task else None
+    run_simulator(
+        endpoint=args.endpoint,
+        model=args.resolved_model,
+        max_model_len=args.max_model_len,
+        total_kv_tokens=args.total_kv_tokens,
+        prefix_length_perc=args.prefix_length_perc,
+        n_runs=args.n_runs,
+        source_type=args.source_type,
+        task=simulate_task,
+        cache_dir=args.cache_dir,
+        utilization_perc=args.utilization_perc,
+        request_interval_s=args.request_interval_s,
+        run_interval_s=args.run_interval_s,
+        request_timeout_s=args.request_timeout_s,
     )

@@ -27,6 +27,9 @@ python3 main.py plugin --list
 
 # Run simulator plugin
 python3 main.py plugin simulator --total-kv-tokens 8388608
+
+# Show plugin-specific help
+python3 main.py plugin simulator --help
 ```
 
 ### Options
@@ -44,15 +47,8 @@ Bench command options (`python3 main.py bench ...`):
 Plugin command options (`python3 main.py plugin ...`):
 * `--list` — List available plugins
 * `PLUGIN_NAME` — Plugin to run (currently: `simulator`)
-* `--total-kv-tokens N` — Total KV cache tokens (required for `simulator`)
-* `--prefix-length-perc N` — Shared prefix % per prompt (default: `70`)
-* `--n-runs N` — Number of simulation runs (default: `1`)
-* `--source-type` — `wikitext | squad | wikipedia` (default: `wikitext`)
-* `--task` — `summarize | qa | chat | explain | continue` (default: random)
-* `--utilization-perc N` — Target utilization of total KV tokens (default: `100`)
-* `--request-interval-s` — Delay between requests (default: `1.0`)
-* `--run-interval-s` — Delay between runs (default: `2.0`)
-* `--request-timeout-s` — HTTP timeout per request (default: `10.0`)
+* Each plugin defines its own arguments and help under its subcommand
+* Use `python3 main.py plugin PLUGIN_NAME --help` to see plugin-specific options
 
 ### Examples
 
@@ -77,6 +73,9 @@ python3 main.py plugin simulator --total-kv-tokens 8388608
 
 # Simulator plugin with task/source tuning
 python3 main.py plugin simulator --total-kv-tokens 8388608 --source-type squad --task qa --utilization-perc 90
+
+# Plugin-specific help
+python3 main.py plugin simulator --help
 ```
 
 ## Files
