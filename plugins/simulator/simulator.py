@@ -274,6 +274,7 @@ def simulate(
     utilization_perc: float = 100.0,
 ) -> None:
     """Public entry point for the KV-cache prefix simulator."""
+    
     run_simulator(
         endpoint=endpoint,
         model=model,
@@ -293,6 +294,7 @@ def register_parser(
     parents: list[argparse.ArgumentParser],
 ) -> None:
     """Register simulator plugin subcommand and its arguments."""
+
     parser = subparsers.add_parser(
         "simulator",
         parents=parents,
