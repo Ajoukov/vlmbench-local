@@ -104,6 +104,7 @@ def run_benchmark(
     count = 0
     for result in benchmark.run():
         count += 1
+        print(f"Processing entry {count} ...")
         if stop_after > 0 and count > stop_after:
             break
 
@@ -132,6 +133,7 @@ def run_benchmark(
 
         # each worker will process this job and update stats
         for _ in workers:
+            print(f"Enqueuing job for entry {count} ...")
             jobs.put(
                 {
                     "name": name,
@@ -141,6 +143,7 @@ def run_benchmark(
                 }
             )
 
+    print(f"Finished enqueuing jobs for benchmark '{name}'. Total entries processed: {count}.")
     # signal workers to stop (one None per worker)
     for _ in workers:
         jobs.put(None)
