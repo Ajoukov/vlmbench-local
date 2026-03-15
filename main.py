@@ -90,6 +90,7 @@ def run_benchmark(
             jobs=jobs,
             stats=stats,
             worker_id=index + 1,
+            metrics_base_url=endpoint,
         )
         for index in range(max(1, clients))
     ]
@@ -158,6 +159,13 @@ def run_benchmark(
     fail = summary["http_error"] + summary["timeout"] + summary["exception"]
 
     print(f"--- {name}: {n} requests, {ok} ok, {fail} failed ---")
+    print(
+        f"    tokens: "
+        f"submitted={summary['total_submitted_tokens']} "
+        f"prefill={summary['total_prefill_tokens']} "
+        f"decode={summary['total_decode_tokens']} "
+        f"cached={summary['total_cached_tokens']}"
+    )
     print(f"End time: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     return n, ok, fail
