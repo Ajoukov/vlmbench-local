@@ -10,31 +10,53 @@ from src.metrics import fetch_snapshot
 
 
 class WorkerStats:
+    """Thread-safe statistics collector for Worker threads."""
+
     def __init__(self):
+        # thread lock
         self._lock = threading.Lock()
 
-        # Counters
+        # counters
         self._total = 0
         self._success = 0
         self._http_error = 0
         self._timeout = 0
         self._exception = 0
 
-        # Bytes
+        # bytes
         self._total_request_bytes = 0
         self._total_response_bytes = 0
 
-        # Latency stats
+        # latency stats
         self._latencies = []
 
-        # Token stats (vLLM usage fields)
-        self._total_submitted_tokens = 0   # prompt_tokens sent by the client
-        self._total_prefill_tokens = 0     # tokens that required prefill computation
-        self._total_decode_tokens = 0      # tokens generated during decode
-        self._total_cached_tokens = 0      # tokens served from KV cache
+        # token stats (vLLM usage fields)
+        self._total_submitted_tokens = 0  # prompt_tokens sent by the client
+        self._total_prefill_tokens = 0  # tokens that required prefill computation
+        self._total_decode_tokens = 0  # tokens generated during decode
+        self._total_cached_tokens = 0  # tokens served from KV cache
 
-    def record_success(self, latency: float, request_size: int, response_size: int,
-                        llm_meta: Optional[Dict[str, Any]] = None):
+    def record_success(
+        self,
+        latency: float,
+        request_size: int,
+        response_size: int,
+        llm_meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Record a successful request.
+
+        Parameters
+        ----------
+        latency : float
+            The latency of the request in milliseconds.
+        request_size : int
+            The size of the request body in bytes.
+        response_size : int
+            The size of the response body in bytes.
+        llm_meta : Optional[Dict[str, Any]]
+            Optional metadata about the LLM request, such as token counts.
+        """
+
         with self._lock:
             self._total += 1
             self._success += 1
@@ -43,8 +65,27 @@ class WorkerStats:
             self._latencies.append(latency)
             self._accumulate_tokens(llm_meta)
 
-    def record_http_error(self, latency: float, request_size: int, response_size: int,
-                          llm_meta: Optional[Dict[str, Any]] = None):
+    def record_http_error(
+        self,
+        latency: float,
+        request_size: int,
+        response_size: int,
+        llm_meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Record a failed request due to an HTTP error (status code >= 400).
+
+        Parameters
+        ----------
+        latency : float
+            The latency of the request in milliseconds.
+        request_size : int
+            The size of the request body in bytes.
+        response_size : int
+            The size of the response body in bytes.
+        llm_meta : Optional[Dict[str, Any]]
+            Optional metadata about the LLM request, such as token counts.
+        """
+
         with self._lock:
             self._total += 1
             self._http_error += 1
@@ -53,19 +94,44 @@ class WorkerStats:
             self._latencies.append(latency)
             self._accumulate_tokens(llm_meta)
 
-    def record_timeout(self, request_size: int):
+    def record_timeout(self, request_size: int) -> None:
+        """Record a request that resulted in a timeout.
+
+        Parameters
+        ----------
+        request_size : int
+            The size of the request body in bytes.
+        """
+
         with self._lock:
             self._total += 1
             self._timeout += 1
             self._total_request_bytes += request_size
 
-    def record_exception(self, request_size: int):
+    def record_exception(self, request_size: int) -> None:
+        """Record a request that resulted in an exception (e.g., network error).
+
+        Parameters
+        ----------
+        request_size : int
+            The size of the request body in bytes.
+        """
+
         with self._lock:
             self._total += 1
             self._exception += 1
             self._total_request_bytes += request_size
 
     def stats(self) -> Dict[str, Any]:
+        """Return a snapshot of the current statistics in a thread-safe manner.
+
+        Returns
+        -------
+        Dict[str, Any]
+            A dictionary containing the current statistics, including total requests,
+            success count, error counts, average latency, token counts, etc.
+        """
+
         with self._lock:
             return {
                 "total_requests": self._total,
@@ -77,40 +143,75 @@ class WorkerStats:
                 "p95_latency_ms": self._percentile(95),
                 "total_request_bytes": self._total_request_bytes,
                 "total_response_bytes": self._total_response_bytes,
-                # Token counters
                 "total_submitted_tokens": self._total_submitted_tokens,
                 "total_prefill_tokens": self._total_prefill_tokens,
                 "total_decode_tokens": self._total_decode_tokens,
                 "total_cached_tokens": self._total_cached_tokens,
             }
 
-    def _accumulate_tokens(self, llm_meta: Optional[Dict[str, Any]]):
-        """Must be called while self._lock is held."""
+    def _accumulate_tokens(self, llm_meta: Optional[Dict[str, Any]]) -> None:
+        """Calculate and accumulate token counts from the provided LLM metadata.
+
+        Parameters
+        ----------
+        llm_meta : Optional[Dict[str, Any]]
+            A dictionary containing LLM metadata, which may include token counts such as
+            "submitted_tokens", "prefill_tokens", "decode_tokens", and "cached_tokens".
+        """
+
         if not llm_meta:
             return
+
         submitted = llm_meta.get("submitted_tokens") or 0
-        prefill  = llm_meta.get("prefill_tokens")   or 0
-        decode   = llm_meta.get("decode_tokens")    or 0
-        cached   = llm_meta.get("cached_tokens")    or 0
+        prefill = llm_meta.get("prefill_tokens") or 0
+        decode = llm_meta.get("decode_tokens") or 0
+        cached = llm_meta.get("cached_tokens") or 0
+
         self._total_submitted_tokens += submitted
-        self._total_prefill_tokens   += prefill
-        self._total_decode_tokens    += decode
-        self._total_cached_tokens    += cached
+        self._total_prefill_tokens += prefill
+        self._total_decode_tokens += decode
+        self._total_cached_tokens += cached
 
     def _avg_latency(self) -> float:
+        """Calculate the average latency from the recorded latencies.
+
+        Returns
+        -------
+        float
+            The average latency in milliseconds. Returns 0.0 if no latencies are recorded.
+        """
+
         if not self._latencies:
             return 0.0
         return sum(self._latencies) / len(self._latencies)
 
     def _percentile(self, p: int) -> float:
+        """Calculate the p-th percentile latency from the recorded latencies.
+
+        Parameters
+        ----------
+        p : int
+            The desired percentile (e.g., 95 for the 95th percentile).
+
+        Returns
+        -------
+        float
+            The p-th percentile latency in milliseconds. Returns 0.0 if no latencies are recorded.
+        """
+
         if not self._latencies:
             return 0.0
+
         sorted_lat = sorted(self._latencies)
         k = int(len(sorted_lat) * p / 100)
+
         return sorted_lat[min(k, len(sorted_lat) - 1)]
 
 
 class Worker(threading.Thread):
+    """Worker thread that processes jobs from a shared queue, send requests
+    and records statistics."""
+
     def __init__(
         self,
         request_timeout: int,
@@ -119,14 +220,37 @@ class Worker(threading.Thread):
         worker_id: int,
         metrics_base_url: Optional[str] = None,
     ):
+        """Initialize the Worker thread.
+
+        Parameters
+        ----------
+        request_timeout : int
+            The timeout for each request in seconds.
+        jobs : queue.Queue[Optional[Dict[str, Any]]]
+            A thread-safe queue from which the worker will consume jobs. Each job is a dictionary
+            containing the request details (e.g., name, url, headers, payload).
+            A job of `None` is a signal to stop the worker.
+        stats : WorkerStats
+            An instance of WorkerStats for recording statistics about the requests processed by this worker.
+        worker_id : int
+            A unique identifier for this worker, used for logging purposes.
+        metrics_base_url : Optional[str]
+            An optional base URL for fetching metrics snapshots before and after requests.
+            If provided, the worker will attempt to fetch snapshots from this URL to enrich
+            the recorded statistics with LLM token breakdowns.
+        """
+
         super().__init__(name=f"worker-{worker_id}", daemon=True)
+        self.worker_id = worker_id
         self._rto = request_timeout
         self._jobs = jobs
         self._stats = stats
-        self.worker_id = worker_id
         self._metrics_base_url = metrics_base_url
 
     def run(self):
+        """Main loop of the worker thread that continuously processes jobs from the queue until a
+        `None` job is encountered, which signals the worker to stop."""
+
         while True:
             job = self._jobs.get()
             try:
@@ -149,18 +273,43 @@ class Worker(threading.Thread):
         headers: Dict[str, str],
         payload: Any,
     ) -> Optional[Dict[str, Any]]:
+        """Process a single job by sending a request to the specified URL with the given headers and payload,
+        and recording the relevant statistics.
+
+        Parameters
+        ----------
+        name : str
+            A name for the request, used for logging purposes.
+        url : str
+            The URL to which the request will be sent.
+        headers : Dict[str, str]
+            A dictionary of HTTP headers to include in the request.
+        payload : Any
+            The body of the request, which will be JSON-encoded before sending.
+
+        Returns
+        -------
+        Optional[Dict[str, Any]]
+            A dictionary containing the response status, latency, request/response sizes, and LLM metadata
+            if the request was successful or resulted in an HTTP error. Returns `None` if the request timed out
+            or resulted in an exception.
+        """
+
         request_body = json.dumps(payload)
         request_size = len(request_body.encode("utf-8"))
 
         start = time.perf_counter()
 
         try:
-            print(f"[REQUEST] {name} {self.name} sending request of size {request_size}B to {url}")
+            print(
+                f"[REQUEST] {name} {self.name} sending request of size {request_size}B to {url}"
+            )
 
-            # --- snapshot metrics BEFORE the request ---
+            # snapshot metrics BEFORE the request
             snap_before = (
                 fetch_snapshot(self._metrics_base_url)
-                if self._metrics_base_url else None
+                if self._metrics_base_url
+                else None
             )
 
             response = requests.post(
@@ -170,13 +319,16 @@ class Worker(threading.Thread):
                 timeout=self._rto,
             )
 
-            # --- snapshot metrics AFTER the request ---
+            # snapshot metrics AFTER the request
             snap_after = (
                 fetch_snapshot(self._metrics_base_url)
-                if self._metrics_base_url else None
+                if self._metrics_base_url
+                else None
             )
 
-            print(f"[RESPONSE] {name} {self.name} received response with status {response.status_code}")
+            print(
+                f"[RESPONSE] {name} {self.name} received response with status {response.status_code}"
+            )
 
             latency = (time.perf_counter() - start) * 1000
 
@@ -190,30 +342,38 @@ class Worker(threading.Thread):
             # (i.e. cache misses), while generation_tokens_total counts decode.
             if snap_before is not None and snap_after is not None:
                 delta = snap_after.delta(snap_before)
+
                 prefill_from_metrics = delta["prefill_tokens"]
-                decode_from_metrics  = delta["decode_tokens"]
-                submitted = llm_meta.get("submitted_tokens")   # from OpenAI usage
+                decode_from_metrics = delta["decode_tokens"]
+                prefix_cached_from_metrics = delta["cached_tokens"]
+
+                submitted = llm_meta.get("submitted_tokens")  # from OpenAI usage
                 cached_from_metrics = (
                     (submitted - prefill_from_metrics)
                     if submitted is not None
                     else None
                 )
                 llm_meta["prefill_tokens"] = prefill_from_metrics
-                llm_meta["decode_tokens"]  = decode_from_metrics
-                llm_meta["cached_tokens"]  = cached_from_metrics
+                llm_meta["decode_tokens"] = decode_from_metrics
+                llm_meta["cached_tokens"] = cached_from_metrics
+                llm_meta["prefix_cache_hits"] = prefix_cached_from_metrics
                 llm_meta["metrics_source"] = "vllm:/metrics"
             else:
                 llm_meta["metrics_source"] = "openai:usage"
 
             if status < 400:
-                self._stats.record_success(latency, request_size, response_size, llm_meta)
+                self._stats.record_success(
+                    latency, request_size, response_size, llm_meta
+                )
             else:
-                self._stats.record_http_error(latency, request_size, response_size, llm_meta)
+                self._stats.record_http_error(
+                    latency, request_size, response_size, llm_meta
+                )
 
             submitted = llm_meta.get("submitted_tokens", "?")
-            prefill   = llm_meta.get("prefill_tokens",   "?")
-            decode    = llm_meta.get("decode_tokens",    "?")
-            cached    = llm_meta.get("cached_tokens",    "?")
+            prefill = llm_meta.get("prefill_tokens", "?")
+            decode = llm_meta.get("decode_tokens", "?")
+            cached = llm_meta.get("cached_tokens", "?")
 
             print(
                 f"[{status}] {name} "
@@ -234,7 +394,9 @@ class Worker(threading.Thread):
 
         except requests.exceptions.Timeout:
             self._stats.record_timeout(request_size)
-            print(f"[TIMEOUT] {name} {self.name} request timed out after {self._rto} seconds")
+            print(
+                f"[TIMEOUT] {name} {self.name} request timed out after {self._rto} seconds"
+            )
             return None
 
         except Exception as e:
@@ -243,31 +405,31 @@ class Worker(threading.Thread):
             return None
 
     def _extract_llm_metadata(self, response) -> Dict[str, Any]:
-        """
-        Extract LLM-specific metadata if available.
-        Works for OpenAI-compatible APIs, with vLLM-specific token detail.
+        """Extract LLM-related metadata from the response, such as token counts from the OpenAI usage field.
 
-        vLLM token fields (per-request):
-          submitted_tokens  – prompt tokens sent by the client
-                              (usage.prompt_tokens)
-          prefill_tokens    – submitted tokens that required actual prefill
-                              computation (submitted - cached)
-          decode_tokens     – tokens generated during the decode phase
-                              (usage.completion_tokens)
-          cached_tokens     – prompt tokens served from the KV prefix cache
-                              (usage.prompt_tokens_details.cached_tokens)
+        Parameters
+        ----------
+        response : requests.Response
+            The HTTP response object from which to extract LLM metadata.
+
+        Returns
+        -------
+        Dict[str, Any]
+            A dictionary containing LLM metadata such as "model", "prompt_tokens", "completion_tokens",
+            "total_tokens", "finish_reason", "submitted_tokens", "prefill_tokens", "decode_tokens",
+            and "cached_tokens".
+            If the response does not contain valid JSON or the expected fields, returns an empty dictionary.
         """
+
         try:
             data = response.json()
             usage = data.get("usage") or {}
 
             submitted = usage.get("prompt_tokens")
-            decode    = usage.get("completion_tokens")
-            cached    = (
-                (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
-                # vLLM ≥ 0.4 also exposes num_cached_tokens at the top level
-                or usage.get("num_cached_tokens")
-            )
+            decode = usage.get("completion_tokens")
+            cached = (usage.get("prompt_tokens_details") or {}).get(
+                "cached_tokens"
+            ) or usage.get("num_cached_tokens")
             prefill = (
                 (submitted - cached)
                 if (submitted is not None and cached is not None)
@@ -276,20 +438,18 @@ class Worker(threading.Thread):
 
             return {
                 "model": data.get("model"),
-                # legacy names kept for backward-compat
-                "prompt_tokens":     submitted,
+                "prompt_tokens": submitted,
                 "completion_tokens": decode,
-                "total_tokens":      usage.get("total_tokens"),
+                "total_tokens": usage.get("total_tokens"),
                 "finish_reason": (
                     data.get("choices", [{}])[0].get("finish_reason")
                     if data.get("choices")
                     else None
                 ),
-                # enriched token breakdown
                 "submitted_tokens": submitted,
-                "prefill_tokens":   prefill,
-                "decode_tokens":    decode,
-                "cached_tokens":    cached,
+                "prefill_tokens": prefill,
+                "decode_tokens": decode,
+                "cached_tokens": cached,
             }
 
         except Exception:

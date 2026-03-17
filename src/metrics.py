@@ -1,27 +1,3 @@
-"""
-src/metrics.py – lightweight vLLM Prometheus metrics reader.
-
-vLLM exposes a Prometheus text-format endpoint at /metrics.
-We parse only the counters we care about (no extra dependencies):
-
-  vllm:prompt_tokens_total     – cumulative prompt tokens that went through
-                                  actual prefill computation (cache misses only)
-
-  vllm:generation_tokens_total – cumulative tokens generated during decode
-
-By snapshotting these counters before and after a request we get per-request
-deltas:
-
-  prefill_delta  = prompt_tokens_total  after - before
-  decode_delta   = generation_tokens_total after - before
-  cached_tokens  = submitted_tokens (OpenAI usage) - prefill_delta
-
-Note: with concurrent workers the deltas will be mixed across requests.
-The values are still useful for aggregate / per-benchmark accounting.
-"""
-
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass
 from typing import Optional
