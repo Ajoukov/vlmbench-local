@@ -1,30 +1,3 @@
-#!/usr/bin/env python3
-
-"""
-VLMBench Coordinator
-
-Usage:
-    ./main.py bench --list
-    ./main.py bench [--endpoint URL] [--model MODEL] [--data-dir DIR] benchmark1 [benchmark2 ...]
-    ./main.py plugin --list
-    ./main.py plugin simulator --total-kv-tokens N
-    ./main.py plugin simulator --help
-
-Examples:
-    ./main.py bench --list
-    ./main.py bench narrativeqa humaneval
-    ./main.py plugin --list
-    ./main.py plugin simulator --total-kv-tokens 8388608
-    ./main.py plugin simulator --help
-
-@authors:
-    - Alexander "Sasha" Joukov (alexander.joukov@stonybrook.edu)
-    - Amir Zadeh (anajafizadeh@cs.stonybrook.edu)
-
-@year: 2026
-@by: File Systems & Storage Lab @ Stony Brook University
-"""
-
 import argparse
 import os
 import queue
@@ -45,7 +18,7 @@ from src.utils import (
     truncate_payload,
 )
 from src.vars import init_vars
-from src.worker import Worker, WorkerStats
+from src.runner.worker import Worker, WorkerStats
 
 
 def run_benchmark(

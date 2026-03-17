@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 import requests
 
-from src.metrics import fetch_snapshot
+from src.prometheus.metrics import fetch_snapshot
 
 
 class WorkerStats:
