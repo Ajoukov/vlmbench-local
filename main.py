@@ -29,17 +29,23 @@ import argparse
 import os
 import queue
 import sys
-from typing import Any, Dict
 import time
+from typing import Any, Dict
 
 from benchmarks import REGISTRY as BENCHMARK_REGISTRY
 from benchmarks import list_all as list_benchmarks
 from plugins import list_all as list_plugins
 from plugins import register_subcommands
 from src import Benchmark
-from src.utils import assert_server_up, detect_max_model_len, detect_model, token_count, truncate_payload
-from src.worker import Worker, WorkerStats
+from src.utils import (
+    assert_server_up,
+    detect_max_model_len,
+    detect_model,
+    token_count,
+    truncate_payload,
+)
 from src.vars import init_vars
+from src.worker import Worker, WorkerStats
 
 
 def run_benchmark(
@@ -97,14 +103,12 @@ def run_benchmark(
 
     # start workers
     for worker in workers:
-        print(f"Starting worker {worker.worker_id} ...")
         worker.start()
 
     # iterate benchmark entries and enqueue jobs
     count = 0
     for result in benchmark.run():
         count += 1
-        print(f"Processing entry {count} ...")
         if stop_after > 0 and count > stop_after:
             break
 
@@ -120,7 +124,9 @@ def run_benchmark(
         headers = {"Content-Type": "application/json"}
 
         # count tokens
-        token_num, tokens = token_count(endpoint, payload.get("model"), payload.get("prompt", ""))
+        token_num, tokens = token_count(
+            endpoint, payload.get("model"), payload.get("prompt", "")
+        )
         if max_model_len > 0 and token_num > max_model_len:
             print(
                 f"Entry {count} exceeds max model length ({token_num} > {max_model_len}).",
@@ -129,20 +135,21 @@ def run_benchmark(
 
         # truncate payload if needed (and if we know the model's max context length)
         if truncate and max_model_len > 0:
-            payload = truncate_payload(endpoint, payload, max_model_len, token_num, tokens)
+            payload = truncate_payload(
+                endpoint, payload, max_model_len, token_num, tokens
+            )
 
         # enqueue one job per entry (workers pick jobs from the shared queue)
-        print(f"Enqueuing job for entry {count} ...")
-        jobs.put(
-            {
-                "name": name,
-                "url": url,
-                "headers": headers,
-                "payload": payload,
-            }
-        )
+        for _ in workers:
+            jobs.put(
+                {
+                    "name": name,
+                    "url": url,
+                    "headers": headers,
+                    "payload": payload,
+                }
+            )
 
-    print(f"Finished enqueuing jobs for benchmark '{name}'. Total entries processed: {count}.")
     # signal workers to stop (one None per worker)
     for _ in workers:
         jobs.put(None)
@@ -277,7 +284,7 @@ def main():
         if args.clients < 1:
             print("Error: --clients must be >= 1.", file=sys.stderr)
             raise RuntimeError("Invalid number of clients")
-        
+
         for name in args.benchmarks:
             if name not in BENCHMARK_REGISTRY:
                 print(f"Error: Unknown benchmark '{name}'.", file=sys.stderr)
@@ -309,7 +316,9 @@ def main():
         total_ok = 0
         total_fail = 0
 
-        print(f"\n=== Running {len(args.benchmarks)} benchmark(s) sequentially with {args.clients} client(s) each ===")
+        print(
+            f"\n=== Running {len(args.benchmarks)} benchmark(s) sequentially with {args.clients} client(s) each ==="
+        )
         for name in args.benchmarks:
             bench_cls = BENCHMARK_REGISTRY[name]
             benchmark = bench_cls.create(model=model, cache_dir=data_dir)
@@ -353,7 +362,10 @@ def main():
             raise RuntimeError("No plugin specified")
 
         if not hasattr(args, "plugin_runner"):
-            print(f"Error: Plugin '{args.plugin_name}' has no runnable handler.", file=sys.stderr)
+            print(
+                f"Error: Plugin '{args.plugin_name}' has no runnable handler.",
+                file=sys.stderr,
+            )
             raise RuntimeError("Invalid plugin specified")
 
         endpoint = args.endpoint
