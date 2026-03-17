@@ -301,10 +301,6 @@ class Worker(threading.Thread):
         start = time.perf_counter()
 
         try:
-            print(
-                f"[REQUEST] {name} {self.name} sending request of size {request_size}B to {url}"
-            )
-
             # snapshot metrics BEFORE the request
             snap_before = (
                 fetch_snapshot(self._metrics_base_url)
@@ -326,10 +322,6 @@ class Worker(threading.Thread):
                 else None
             )
 
-            print(
-                f"[RESPONSE] {name} {self.name} received response with status {response.status_code}"
-            )
-
             latency = (time.perf_counter() - start) * 1000
 
             status = response.status_code
@@ -345,7 +337,7 @@ class Worker(threading.Thread):
 
                 prefill_from_metrics = delta["prefill_tokens"]
                 decode_from_metrics = delta["decode_tokens"]
-                prefix_cached_from_metrics = delta["cached_tokens"]
+                prefix_cached_from_metrics = delta["prefix_cache_hits"]
 
                 submitted = llm_meta.get("submitted_tokens")  # from OpenAI usage
                 cached_from_metrics = (
@@ -353,6 +345,7 @@ class Worker(threading.Thread):
                     if submitted is not None
                     else None
                 )
+
                 llm_meta["prefill_tokens"] = prefill_from_metrics
                 llm_meta["decode_tokens"] = decode_from_metrics
                 llm_meta["cached_tokens"] = cached_from_metrics
@@ -374,6 +367,7 @@ class Worker(threading.Thread):
             prefill = llm_meta.get("prefill_tokens", "?")
             decode = llm_meta.get("decode_tokens", "?")
             cached = llm_meta.get("cached_tokens", "?")
+            prefix_cache_hits = llm_meta.get("prefix_cache_hits", "?")
 
             print(
                 f"[{status}] {name} "
@@ -381,7 +375,7 @@ class Worker(threading.Thread):
                 f"latency={latency:.2f}ms "
                 f"req={request_size}B "
                 f"resp={response_size}B "
-                f"tokens: submitted={submitted} prefill={prefill} decode={decode} cached={cached}"
+                f"tokens: submitted={submitted} prefill={prefill} decode={decode} cached={cached} prefix_cache_hits={prefix_cache_hits}"
             )
 
             return {
@@ -416,8 +410,8 @@ class Worker(threading.Thread):
         -------
         Dict[str, Any]
             A dictionary containing LLM metadata such as "model", "prompt_tokens", "completion_tokens",
-            "total_tokens", "finish_reason", "submitted_tokens", "prefill_tokens", "decode_tokens",
-            and "cached_tokens".
+            "total_tokens", "finish_reason", "submitted_tokens", "prefill_tokens", "decode_tokens", "cached_tokens",
+            and "prefix_cache_hits".
             If the response does not contain valid JSON or the expected fields, returns an empty dictionary.
         """
 
@@ -449,7 +443,7 @@ class Worker(threading.Thread):
                 "submitted_tokens": submitted,
                 "prefill_tokens": prefill,
                 "decode_tokens": decode,
-                "cached_tokens": cached,
+                "prefix_cache_hits": 0,
             }
 
         except Exception:
