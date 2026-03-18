@@ -2,9 +2,11 @@
 
 import argparse
 
+from plugins.readiness.readiness import register_parser as register_readiness_parser
 from plugins.simulator.simulator import register_parser as register_simulator_parser
 
 REGISTRY = {
+    "readiness": register_readiness_parser,
     "simulator": register_simulator_parser,
 }
 
