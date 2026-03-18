@@ -1,5 +1,5 @@
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
 class RunnerStats:
@@ -27,7 +27,6 @@ class RunnerStats:
         latency: float,
         request_size: int,
         response_size: int,
-        llm_meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Record a successful request.
 
@@ -39,8 +38,6 @@ class RunnerStats:
             The size of the request body in bytes.
         response_size : int
             The size of the response body in bytes.
-        llm_meta : Optional[Dict[str, Any]]
-            Optional metadata about the LLM request, such as token counts.
         """
 
         with self._lock:
@@ -49,14 +46,12 @@ class RunnerStats:
             self._total_request_bytes += request_size
             self._total_response_bytes += response_size
             self._latencies.append(latency)
-            self._accumulate_tokens(llm_meta)
 
     def record_error(
         self,
         latency: float,
         request_size: int,
         response_size: int,
-        llm_meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Record a failed request due to an HTTP error (status code >= 400).
 
@@ -68,8 +63,6 @@ class RunnerStats:
             The size of the request body in bytes.
         response_size : int
             The size of the response body in bytes.
-        llm_meta : Optional[Dict[str, Any]]
-            Optional metadata about the LLM request, such as token counts.
         """
 
         with self._lock:
@@ -78,7 +71,6 @@ class RunnerStats:
             self._total_request_bytes += request_size
             self._total_response_bytes += response_size
             self._latencies.append(latency)
-            self._accumulate_tokens(llm_meta)
 
     def record_timeout(self, request_size: int) -> None:
         """Record a request that resulted in a timeout.
