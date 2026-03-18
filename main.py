@@ -289,7 +289,7 @@ def main():
         # resolve max model length if truncation is needed (some benchmarks may require this)
         max_model_len = 0
         if args.truncate:
-            max_model_len = detect_max_model_len(endpoint)
+            max_model_len = detect_max_model_len(endpoint, model, timeout_s=vars["REQUEST_TIMEOUT"])
             print(f"Max model length: {max_model_len} (truncation enabled)")
 
         # ensure data directory exists for caching benchmark datasets
@@ -370,7 +370,7 @@ def main():
         print(f"Model: {model}")
 
         # resolve max model length
-        max_model_len = detect_max_model_len(endpoint)
+        max_model_len = detect_max_model_len(endpoint, model, timeout_s=vars["REQUEST_TIMEOUT"])
         print(f"Max model length: {max_model_len}")
 
         # ensure data directory exists for caching benchmark datasets
