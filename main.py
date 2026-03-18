@@ -10,8 +10,9 @@ from benchmarks import list_all as list_benchmarks
 from plugins import list_all as list_plugins
 from plugins import register_subcommands
 from src import Benchmark
-from src.runner.runner import Runner
+from src.runner import Runner
 from src.runner.stats import RunnerStats
+from src.tokens import truncate_payload
 from src.utils import assert_server_up, auto_detect_model, detect_max_model_len
 from src.vars import init_vars
 
@@ -76,6 +77,15 @@ def _run_benchmark(
         if not payload.get("prompt") and not payload.get("messages"):
             continue
 
+        # check if we need to truncate inputs that exceed the model's context window
+        if truncate and max_model_len > 0:
+            payload = truncate_payload(
+                endpoint=endpoint,
+                payload=payload,
+                max_model_len=max_model_len,
+                timeout_s=vars["REQUEST_TIMEOUT"],
+            )
+        
         url = f"{endpoint.rstrip('/')}/v1{uri}"
         headers = {"Content-Type": "application/json"}
 
