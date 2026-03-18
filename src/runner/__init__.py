@@ -20,6 +20,7 @@ class Runner(threading.Thread):
         stats: RunnerStats,
         request_timeout: int,
         enable_metrics: bool = False,
+        metrics_endpoint: str = "",
     ):
         """Initialize the Runner thread.
 
@@ -35,6 +36,8 @@ class Runner(threading.Thread):
             The timeout in seconds for each request sent by the runner.
         enable_metrics : bool, optional
             Whether to enable metrics collection from the /metrics endpoint (default is False).
+        metrics_endpoint : str, optional
+            The base URL of the VLLM server for fetching metrics (required if enable_metrics is True; default is an empty string).
         """
 
         super().__init__(name=f"runner-{runner_id}", daemon=True)
@@ -44,7 +47,8 @@ class Runner(threading.Thread):
         self._jobs = jobs
         self._stats = stats
         self._enable_metrics = enable_metrics
-
+        self._metrics_endpoint = metrics_endpoint
+    
     def id(self) -> int:
         """Get the unique identifier of this runner.
 
@@ -114,7 +118,7 @@ class Runner(threading.Thread):
         try:
             if self._enable_metrics:
                 print(f"[METRICS] Fetching pre-request metrics snapshot for {name}...")
-                pre_metrics = fetch_snapshot(base_url=url, timeout=self._rto)
+                pre_metrics = fetch_snapshot(base_url=self._metrics_endpoint, timeout=self._rto)
                 print(f"[METRICS] Pre-request metrics snapshot for {name}: {pre_metrics}")
 
             # send the request
@@ -127,7 +131,7 @@ class Runner(threading.Thread):
 
             if self._enable_metrics and pre_metrics:
                 print(f"[METRICS] Fetching post-request metrics snapshot for {name}...")
-                post_metrics = fetch_snapshot(base_url=url, timeout=self._rto)
+                post_metrics = fetch_snapshot(base_url=self._metrics_endpoint, timeout=self._rto)
                 print(f"[METRICS] Post-request metrics snapshot for {name}: {post_metrics}")
 
             # calculate latency in milliseconds

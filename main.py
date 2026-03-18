@@ -64,6 +64,7 @@ def _run_benchmark(
             stats=stats,
             request_timeout=vars["REQUEST_TIMEOUT"],
             enable_metrics=enable_metrics,
+            metrics_endpoint=endpoint,
         )
         for index in range(max(1, clients))
     ]
