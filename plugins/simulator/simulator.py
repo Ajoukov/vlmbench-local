@@ -1,18 +1,19 @@
+import argparse
 import math
 import random
 import time
-import argparse
 from typing import Optional
 
 import requests
 
-from src.tokens import truncate_payload
 from plugins.simulator.text_sources import (
     TaskType,
     TextSource,
     build_prompt_pair,
     make_source,
 )
+from src.prometheus import fetch_snapshot
+from src.tokens import truncate_payload
 
 # ---------------------------------------------------------------------------
 # Default parameters
@@ -29,6 +30,7 @@ MIN_GEN_TOKENS = 16
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _split_tokens(total_tokens: int) -> tuple[int, int]:
     """Split *total_tokens* into (prompt_tokens, gen_tokens)."""
@@ -87,6 +89,7 @@ def _send_request(
 # Main simulator
 # ---------------------------------------------------------------------------
 
+
 def run_simulator(
     endpoint: str,
     model: str,
@@ -95,6 +98,7 @@ def run_simulator(
     prefix_length_perc: float = 50.0,
     n_runs: int = 1,
     source_type: str = "wikitext",
+    enable_metrics: bool = False,
     task: Optional[TaskType] = None,
     cache_dir: Optional[str] = None,
     utilization_perc: float = 100.0,
@@ -178,16 +182,19 @@ def run_simulator(
     print(f"  Max model length          : {max_model_len}")
     print(f"  Target tokens / request   : {target_tokens}")
     print(f"  Prompt tokens             : {prompt_tokens}")
-    print(f"    ├─ Prefix  (~{prefix_length_perc:.0f}%)           : ~{prefix_tokens} tokens")
-    print(f"    └─ Suffix  (~{100 - prefix_length_perc:.0f}%)           : ~{suffix_tokens} tokens")
+    print(
+        f"    ├─ Prefix  (~{prefix_length_perc:.0f}%)           : ~{prefix_tokens} tokens"
+    )
+    print(
+        f"    └─ Suffix  (~{100 - prefix_length_perc:.0f}%)           : ~{suffix_tokens} tokens"
+    )
     print(f"  Generation tokens         : {gen_tokens}")
     print(f"  Actual KV / request       : {actual_req_tokens}")
     print(f"  Requests per run          : {requests_per_run}")
     print(f"  Number of runs (N)        : {n_runs}")
     if effective_kv > max_single:
         print(
-            "  [WARN] Target exceeds single-request capacity; "
-            "capped at max_model_len."
+            "  [WARN] Target exceeds single-request capacity; capped at max_model_len."
         )
     print("=" * 56)
 
@@ -234,6 +241,11 @@ def run_simulator(
             label = f"  [{req_idx + 1:>3}/{requests_per_run}] task={req_pair.task.value:<10}"
             print(label, end=" ", flush=True)
 
+            if enable_metrics:
+                pre_metrics = fetch_snapshot(
+                    base_url=endpoint, timeout=request_timeout_s
+                )
+
             _send_request(
                 endpoint=endpoint,
                 completions_url=completions_url,
@@ -244,14 +256,28 @@ def run_simulator(
                 request_timeout_s=request_timeout_s,
             )
 
+            if enable_metrics and pre_metrics:
+                post_metrics = fetch_snapshot(
+                    base_url=endpoint, timeout=request_timeout_s
+                )
+
             completed += actual_req_tokens
             kv_filled = min(completed, effective_kv)
             print(f"KV filled: {kv_filled:>8} / {effective_kv}")
 
+            if enable_metrics and pre_metrics and post_metrics:
+                values = post_metrics.delta(pre_metrics)
+                metrics_str = " ".join(
+                    f"{metric}={value:.2f}" for metric, value in values.items()
+                )
+                print(f"{metrics_str}")
+
             if req_idx < requests_per_run - 1:
                 time.sleep(request_interval_s)
 
-        print(f"  Run {run_idx + 1} complete. Total KV filled: {min(completed, effective_kv)}/{effective_kv}")
+        print(
+            f"  Run {run_idx + 1} complete. Total KV filled: {min(completed, effective_kv)}/{effective_kv}"
+        )
 
         if run_idx < n_runs - 1:
             time.sleep(run_interval_s)
@@ -268,13 +294,14 @@ def simulate(
     total_kv_tokens: int,
     prefix_length_perc: float = 50.0,
     n_runs: int = 1,
+    enable_metrics: bool = False,
     source_type: str = "wikitext",
     task: Optional[TaskType] = None,
     cache_dir: Optional[str] = None,
     utilization_perc: float = 100.0,
 ) -> None:
     """Public entry point for the KV-cache prefix simulator."""
-    
+
     run_simulator(
         endpoint=endpoint,
         model=model,
@@ -284,6 +311,7 @@ def simulate(
         n_runs=n_runs,
         source_type=source_type,
         task=task,
+        enable_metrics=enable_metrics,
         cache_dir=cache_dir,
         utilization_perc=utilization_perc,
     )
@@ -374,4 +402,5 @@ def run_from_args(args: argparse.Namespace) -> None:
         request_interval_s=args.request_interval_s,
         run_interval_s=args.run_interval_s,
         request_timeout_s=args.request_timeout_s,
+        enable_metrics=args.enable_metrics,
     )

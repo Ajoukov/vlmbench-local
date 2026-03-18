@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 import requests
 
+from src.prometheus import MetricsSnapshot, fetch_snapshot
 from src.runner.stats import RunnerStats
 
 
@@ -18,6 +19,7 @@ class Runner(threading.Thread):
         jobs: "queue.Queue[Optional[Dict[str, Any]]]",
         stats: RunnerStats,
         request_timeout: int,
+        enable_metrics: bool = False,
     ):
         """Initialize the Runner thread.
 
@@ -31,6 +33,8 @@ class Runner(threading.Thread):
             A shared statistics collector that the runner will use to record request outcomes.
         request_timeout : int
             The timeout in seconds for each request sent by the runner.
+        enable_metrics : bool, optional
+            Whether to enable metrics collection from the /metrics endpoint (default is False).
         """
 
         super().__init__(name=f"runner-{runner_id}", daemon=True)
@@ -39,6 +43,7 @@ class Runner(threading.Thread):
         self._rto = request_timeout
         self._jobs = jobs
         self._stats = stats
+        self._enable_metrics = enable_metrics
 
     def id(self) -> int:
         """Get the unique identifier of this runner.
@@ -99,10 +104,18 @@ class Runner(threading.Thread):
         request_body = json.dumps(payload)
         request_size = len(request_body.encode("utf-8"))
 
+        # define metrics variables
+        pre_metrics: MetricsSnapshot = None
+        post_metrics: MetricsSnapshot = None
+
+        # start the timer for latency measurement
         start = time.perf_counter()
 
         try:
-            # send the request and measure latency
+            if self._enable_metrics:
+                pre_metrics = fetch_snapshot(base_url=url, timeout=self._rto)
+
+            # send the request
             response = requests.post(
                 url,
                 headers=headers,
@@ -110,6 +123,10 @@ class Runner(threading.Thread):
                 timeout=self._rto,
             )
 
+            if self._enable_metrics and pre_metrics:
+                post_metrics = fetch_snapshot(base_url=url, timeout=self._rto)
+
+            # calculate latency in milliseconds
             latency = (time.perf_counter() - start) * 1000
 
             status = response.status_code
@@ -138,3 +155,11 @@ class Runner(threading.Thread):
         except Exception as e:
             self._stats.record_error(request_size)
             print(f"[ERROR] {name} {self.name}: {e}")
+
+        # calculate and print the differences in metrics values before and after the request
+        if self._enable_metrics and pre_metrics and post_metrics:
+            values = post_metrics.delta(pre_metrics)
+            metrics_str = " ".join(
+                f"{metric}={value:.2f}" for metric, value in values.items()
+            )
+            print(f"{metrics_str}")

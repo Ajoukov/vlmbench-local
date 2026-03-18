@@ -85,7 +85,7 @@ def _run_benchmark(
                 max_model_len=max_model_len,
                 timeout_s=vars["REQUEST_TIMEOUT"],
             )
-        
+
         url = f"{endpoint.rstrip('/')}/v1{uri}"
         headers = {"Content-Type": "application/json"}
 
@@ -170,6 +170,11 @@ def main():
         "--data-dir",
         default=vars["DEFAULT_DATA_DIR"],
         help=f"Dataset cache directory (default: {vars['DEFAULT_DATA_DIR']})",
+    )
+    common.add_argument(
+        "--enable-metrics",
+        action="store_true",
+        help="Enable metrics collection (fetches cumulative counter values from /metrics endpoint before and after benchmarks/plugins, and prints the differences)",
     )
 
     # create subparsers for "bench" and "plugin" commands
