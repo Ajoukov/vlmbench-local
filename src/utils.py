@@ -3,57 +3,6 @@ from typing import Dict, List, Tuple
 import requests
 
 
-def _message_to_prompt(messages: List[Dict]) -> str:
-    """Convert a list of messages to a single prompt string.
-
-    This is used to ensure that the token counting and truncation logic
-    works correctly for both chat and non-chat models, by always using
-    the same prompt format.
-
-    Parameters
-    ----------
-    messages : list[dict]
-        A list of messages in the format [{"role": "user", "content": "..."}, ...].
-
-    Returns
-    -------
-    str
-        A single string containing the concatenated user messages.
-    """
-
-    prompt = ""
-    for msg in messages:
-        prompt += msg.get("role", "") + ": " + msg.get("content", "") + "\n"
-    return prompt.strip()
-
-
-def _prompt_to_messages(prompt: str) -> List[Dict]:
-    """Convert a prompt string back to a list of messages.
-
-    This is used to convert the truncated prompt back to messages format
-    after truncation.
-
-    Parameters
-    ----------
-    prompt : str
-        A single string containing the concatenated user messages.
-
-    Returns
-    -------
-    list[dict]
-        A list of messages in the format [{"role": "user", "content": "..."}, ...].
-    """
-
-    messages = []
-    for line in prompt.split("\n"):
-        if ": " in line:
-            role, content = line.split(": ", 1)
-            messages.append({"role": role.strip(), "content": content.strip()})
-        else:
-            messages.append({"role": "user", "content": line.strip()})
-    return messages
-
-
 def assert_server_up(endpoint: str, timeout_s: float = 5.0) -> None:
     """Assert that the server is up by calling the /health endpoint.
 
@@ -149,8 +98,25 @@ def detect_max_model_len(endpoint: str, model: str, timeout_s: float = 10.0) -> 
     raise RuntimeError(f"Model '{model}' not found at endpoint.")
 
 
-# TODO: Fix messages and prompt handling in token_count and truncate_payload to work correctly with both chat and non-chat models, by always using the same prompt format
-# (e.g. concatenating messages into a single prompt string) for token counting and truncation.
+def _render_messages(messages: List[Dict]) -> str:
+    """Render a list of messages into a single prompt string.
+
+    Parameters
+    ----------
+    messages : list[dict]
+        A list of messages, where each message is a dict with 'role' and 'content' keys.
+
+    Returns
+    -------
+    str
+        The rendered prompt string.
+    """
+
+    return "\n".join(
+        [f"{message.get('role', '')}: {message.get('content', '')}" for message in messages]
+    )
+
+
 def token_count(
     endpoint: str, model: str, payload: Dict, timeout_s: float = 10.0
 ) -> Tuple[int, List[int]]:
@@ -181,7 +147,7 @@ def token_count(
     # extract the raw text to tokenize
     prompt = payload.get("prompt", payload.get("messages", ""))
     if isinstance(prompt, list):
-        prompt = _message_to_prompt(prompt)
+        prompt = _render_messages(prompt)
 
     # call /tokenize to get the token count and tokens for the prompt
     r = requests.post(
@@ -196,6 +162,104 @@ def token_count(
     count = r.json().get("count", len(tokens))
 
     return count, tokens
+
+
+def _truncate_prompt(
+    endpoint: str,
+    model: str,
+    tokens: List[int],
+    limit: int,
+    timeout_s: float = 10.0,
+) -> str:
+    """Truncate the prompt tokens to fit within the specified limit and detokenize back to text.
+
+    Parameters
+    ----------
+    endpoint : str
+        The base URL of the model server (e.g. http://localhost:8000).
+    model : str
+        The name of the model to use for detokenization.
+    tokens : list[int]
+        The list of token IDs for the input prompt.
+    limit : int
+        The maximum number of tokens allowed for the prompt after truncation.
+    timeout_s : float, optional
+        The timeout in seconds for the detokenize request (default is 10.0).
+
+    Returns
+    -------
+    str
+        The truncated prompt text.
+
+    Raises
+    ------
+    HTTPError
+        If the /detokenize endpoint returns a non-200 status code or is unreachable.
+    """
+
+    truncated_tokens = tokens[:limit]
+
+    r = requests.post(
+        f"{endpoint.rstrip('/')}/detokenize",
+        json={"model": model, "tokens": truncated_tokens},
+        timeout=timeout_s,
+    )
+    r.raise_for_status()
+
+    return r.json().get("prompt", "")
+
+
+def _truncate_messages(
+    endpoint: str,
+    model: str,
+    msgs: List[Dict],
+    limit: int,
+    timeout_s: float = 10.0,
+) -> List[Dict]:
+    """Truncate the list of messages to fit within the specified token limit.
+    
+    Parameters
+    ----------
+    endpoint : str
+        The base URL of the model server (e.g. http://localhost:8000).
+    model : str
+        The name of the model to use for tokenization and detokenization.
+    msgs : list[dict]
+        The list of messages to be truncated, where each message is a dict with 'role' and 'content' keys.
+    limit : int
+        The maximum number of tokens allowed for the messages after truncation.
+    timeout_s : float, optional
+        The timeout in seconds for the tokenization and detokenization requests (default is 10.0).
+
+    Returns
+    -------
+    list[dict]
+        The truncated list of messages that fits within the token limit.
+    
+    Raises
+    ------
+    HTTPError
+        If the /tokenize or /detokenize endpoints return a non-200 status code or are unreachable during truncation.
+    """
+
+    while msgs:
+        count, _ = token_count(
+            endpoint,
+            model,
+            {"messages": msgs},
+            timeout_s,
+        )
+
+        if count <= limit:
+            return msgs
+
+        # preserve first system message
+        if len(msgs) > 1 and msgs[0]["role"] == "system":
+            msgs.pop(1)
+        else:
+            msgs.pop(0)
+
+    return []
 
 
 def truncate_payload(
@@ -242,26 +306,19 @@ def truncate_payload(
         raise ValueError("Payload must include 'max_tokens' when using --truncate")
 
     # calculate the limit
-    limit = max_model_len - generation_tokens - 2
+    limit = max_model_len - generation_tokens - 32
     if count <= limit:
         return payload
 
-    # truncate, keep first limit tokens, detokenize back
-    truncated_tokens = tokens[:limit]
-    r = requests.post(
-        f"{endpoint.rstrip('/')}/detokenize",
-        json={"model": model, "tokens": truncated_tokens},
-        timeout=timeout_s,
-    )
-    r.raise_for_status()
-
-    # extract the truncated text from the response and update the payload
-    truncated_text = r.json().get("prompt", "")
-
-    # update the payload with the truncated prompt
-    if "messages" in payload:
-        payload["messages"] = _prompt_to_messages(truncated_text)
-    else:
-        payload["prompt"] = truncated_text
+    if "prompt" in payload:
+        truncated_prompt = _truncate_prompt(
+            endpoint, model, tokens, limit, timeout_s
+        )
+        payload["prompt"] = truncated_prompt
+    elif "messages" in payload:
+        truncated_msgs = _truncate_messages(
+            endpoint, model, payload["messages"], limit, timeout_s
+        )
+        payload["messages"] = truncated_msgs
 
     return payload

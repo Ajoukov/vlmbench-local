@@ -16,7 +16,7 @@ from src.utils import assert_server_up, auto_detect_model, detect_max_model_len
 from src.vars import init_vars
 
 
-def run_benchmark(
+def _run_benchmark(
     vars: Dict[str, Any],
     name: str,
     benchmark: Benchmark,
@@ -291,7 +291,7 @@ def main():
             benchmark.set_limit(args.stop_after)
 
             # run benchmark and accumulate stats
-            n, ok, fail = run_benchmark(
+            n, ok, fail = _run_benchmark(
                 vars,
                 name,
                 benchmark,
