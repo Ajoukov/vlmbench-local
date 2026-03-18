@@ -90,7 +90,7 @@ def _run_benchmark(
         headers = {"Content-Type": "application/json"}
 
         # enqueue one job per entry (runners pick jobs from the shared queue)
-        for _ in clients:
+        for _ in range(clients):
             jobs.put(
                 {
                     "name": name,
