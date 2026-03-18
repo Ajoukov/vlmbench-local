@@ -49,7 +49,7 @@ def _run_benchmark(
         Whether to enable metrics collection (fetches cumulative counter values from /metrics endpoint before and after benchmarks, and prints the differences; default: False).
     """
 
-    print(f"\n=== Benchmark: {name} ===")
+    print(f"\n=== Benchmark: {name} (metrics={enable_metrics}) ===")
     print(f"--- Start time: {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
 
     # shared queue for jobs and stats collector

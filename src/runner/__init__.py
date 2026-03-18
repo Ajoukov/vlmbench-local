@@ -113,7 +113,9 @@ class Runner(threading.Thread):
 
         try:
             if self._enable_metrics:
+                print(f"[METRICS] Fetching pre-request metrics snapshot for {name}...")
                 pre_metrics = fetch_snapshot(base_url=url, timeout=self._rto)
+                print(f"[METRICS] Pre-request metrics snapshot for {name}: {pre_metrics}")
 
             # send the request
             response = requests.post(
@@ -124,7 +126,9 @@ class Runner(threading.Thread):
             )
 
             if self._enable_metrics and pre_metrics:
+                print(f"[METRICS] Fetching post-request metrics snapshot for {name}...")
                 post_metrics = fetch_snapshot(base_url=url, timeout=self._rto)
+                print(f"[METRICS] Post-request metrics snapshot for {name}: {post_metrics}")
 
             # calculate latency in milliseconds
             latency = (time.perf_counter() - start) * 1000
@@ -158,6 +162,7 @@ class Runner(threading.Thread):
 
         # calculate and print the differences in metrics values before and after the request
         if self._enable_metrics and pre_metrics and post_metrics:
+            print(f"[METRICS] Metrics differences for {name}:")
             values = post_metrics.delta(pre_metrics)
             metrics_str = " ".join(
                 f"{metric}={value:.2f}" for metric, value in values.items()
