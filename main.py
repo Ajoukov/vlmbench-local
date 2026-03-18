@@ -12,13 +12,14 @@ from plugins import register_subcommands
 from src import Benchmark
 from src.utils import (
     assert_server_up,
+    auto_detect_model,
     detect_max_model_len,
-    detect_model,
     token_count,
     truncate_payload,
 )
 from src.vars import init_vars
-from src.runner.worker import Worker, WorkerStats
+from src.runner.stats import RunnerStats
+from src.runner.runner import Runner
 
 
 def run_benchmark(
@@ -60,16 +61,15 @@ def run_benchmark(
 
     # shared queue for jobs and stats collector
     jobs: "queue.Queue[Dict[str, Any] | None]" = queue.Queue()
-    stats = WorkerStats()
+    stats = RunnerStats()
 
     # create worker threads
     workers = [
-        Worker(
-            request_timeout=vars["REQUEST_TIMEOUT"],
+        Runner(
+            runner_id=index + 1,
             jobs=jobs,
             stats=stats,
-            worker_id=index + 1,
-            metrics_base_url=endpoint,
+            request_timeout=vars["REQUEST_TIMEOUT"],
         )
         for index in range(max(1, clients))
     ]
@@ -275,7 +275,7 @@ def main():
             raise RuntimeError(f"Cannot reach server at {endpoint}: {e}")
         print("Server is up.")
 
-        model = args.model or detect_model(endpoint)
+        model = args.model or auto_detect_model(endpoint)
         print(f"Model: {model}")
 
         max_model_len = 0
@@ -354,7 +354,7 @@ def main():
         print("Server is up.")
 
         # reverse compatibility: if --model is not provided, try to auto-detect it from the endpoint
-        resolved_model = args.model or detect_model(endpoint)
+        resolved_model = args.model or auto_detect_model(endpoint)
         print(f"Model: {resolved_model}")
 
         # resolve max model length if truncation is needed (some plugins may require this)
