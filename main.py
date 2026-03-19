@@ -1,4 +1,5 @@
 import argparse
+import random
 import os
 import queue
 import sys
@@ -26,6 +27,7 @@ def _run_benchmark(
     truncate: bool = False,
     max_model_len: int = 0,
     enable_metrics: bool = False,
+    random_populate: bool = False,
 ):
     """Run a single benchmark: iterate its entries, send HTTP requests, and print the status code for each.
 
@@ -95,15 +97,27 @@ def _run_benchmark(
         headers = {"Content-Type": "application/json"}
 
         # enqueue one job per entry (runners pick jobs from the shared queue)
-        for _ in range(clients):
-            jobs.put(
-                {
-                    "name": name,
-                    "url": url,
-                    "headers": headers,
-                    "payload": payload,
-                }
-            )
+        if random_populate:
+            random_range = random.randint(1, clients)
+            for _ in range(random_range):
+                jobs.put(
+                    {
+                        "name": name,
+                        "url": url,
+                        "headers": headers,
+                        "payload": payload,
+                    }
+                )
+        else:
+            for _ in range(clients):
+                jobs.put(
+                    {
+                        "name": name,
+                        "url": url,
+                        "headers": headers,
+                        "payload": payload,
+                    }
+                )
 
     # signal runners to stop (one None per runner)
     for _ in runners:
@@ -180,6 +194,11 @@ def main():
         "--enable-metrics",
         action="store_true",
         help="Enable metrics collection (fetches cumulative counter values from /metrics endpoint before and after benchmarks/plugins, and prints the differences)",
+    )
+    common.add_argument(
+        "--random-populate",
+        action="store_true",
+        help="Populate dataset items in random order",
     )
 
     # create subparsers for "bench" and "plugin" commands
@@ -320,6 +339,7 @@ def main():
                 truncate=args.truncate,
                 max_model_len=max_model_len,
                 enable_metrics=args.enable_metrics,
+                random_populate=args.random_populate,
             )
 
             total_n += n
