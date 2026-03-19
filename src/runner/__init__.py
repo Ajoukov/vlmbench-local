@@ -48,7 +48,7 @@ class Runner(threading.Thread):
         self._jobs = jobs
         self._stats = stats
         self._enable_metrics = enable_metrics
-    
+
     def id(self) -> int:
         """Get the unique identifier of this runner.
 
@@ -128,7 +128,9 @@ class Runner(threading.Thread):
             )
 
             if self._enable_metrics and pre_metrics:
-                post_metrics = fetch_snapshot(base_url=self._endpoint, timeout=self._rto)
+                post_metrics = fetch_snapshot(
+                    base_url=self._endpoint, timeout=self._rto
+                )
 
             # calculate latency in milliseconds
             latency = (time.perf_counter() - start) * 1000
@@ -168,3 +170,5 @@ class Runner(threading.Thread):
             )
 
             print(f"{metrics_str}")
+
+            self._stats.record_vllm_metrics(values)

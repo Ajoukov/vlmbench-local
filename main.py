@@ -1,5 +1,4 @@
 import argparse
-import random
 import os
 import queue
 import sys
@@ -27,7 +26,6 @@ def _run_benchmark(
     truncate: bool = False,
     max_model_len: int = 0,
     enable_metrics: bool = False,
-    random_populate: bool = False,
 ):
     """Run a single benchmark: iterate its entries, send HTTP requests, and print the status code for each.
 
@@ -97,29 +95,15 @@ def _run_benchmark(
         headers = {"Content-Type": "application/json"}
 
         # enqueue one job per entry (runners pick jobs from the shared queue)
-        if random_populate:
-            random_range = random.randint(1, clients)
-            print(f"Enqueueing {random_range} jobs for entry (random_populate enabled)")
-            
-            for _ in range(random_range):
-                jobs.put(
-                    {
-                        "name": name,
-                        "url": url,
-                        "headers": headers,
-                        "payload": payload,
-                    }
-                )
-        else:
-            for _ in range(clients):
-                jobs.put(
-                    {
-                        "name": name,
-                        "url": url,
-                        "headers": headers,
-                        "payload": payload,
-                    }
-                )
+        for _ in range(clients):
+            jobs.put(
+                {
+                    "name": name,
+                    "url": url,
+                    "headers": headers,
+                    "payload": payload,
+                }
+            )
 
     # signal runners to stop (one None per runner)
     for _ in runners:
@@ -147,6 +131,11 @@ def _run_benchmark(
     print(f"Total response bytes: {total_response_bytes}")
     print(f"Average latency: {average_latency:.2f} ms")
     print(f"95th percentile latency: {p95_latency:.2f} ms")
+
+    vllm_metrics = stats.vllm_stats()
+    for metric_name, value in vllm_metrics.items():
+        print(f"vllm:'{metric_name}': {value}")
+
     print(f"--- End time: {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
 
     return n, ok, fail
@@ -196,11 +185,6 @@ def main():
         "--enable-metrics",
         action="store_true",
         help="Enable metrics collection (fetches cumulative counter values from /metrics endpoint before and after benchmarks/plugins, and prints the differences)",
-    )
-    common.add_argument(
-        "--random-populate",
-        action="store_true",
-        help="Populate dataset items in random order",
     )
 
     # create subparsers for "bench" and "plugin" commands
@@ -310,7 +294,9 @@ def main():
         # resolve max model length if truncation is needed (some benchmarks may require this)
         max_model_len = 0
         if args.truncate:
-            max_model_len = detect_max_model_len(endpoint, model, timeout_s=vars["REQUEST_TIMEOUT"])
+            max_model_len = detect_max_model_len(
+                endpoint, model, timeout_s=vars["REQUEST_TIMEOUT"]
+            )
             print(f"Max model length: {max_model_len} (truncation enabled)")
 
         # ensure data directory exists for caching benchmark datasets
@@ -392,7 +378,9 @@ def main():
         print(f"Model: {model}")
 
         # resolve max model length
-        max_model_len = detect_max_model_len(endpoint, model, timeout_s=vars["REQUEST_TIMEOUT"])
+        max_model_len = detect_max_model_len(
+            endpoint, model, timeout_s=vars["REQUEST_TIMEOUT"]
+        )
         print(f"Max model length: {max_model_len}")
 
         # ensure data directory exists for caching benchmark datasets

@@ -22,6 +22,22 @@ class RunnerStats:
         # latency stats
         self._latencies = []
 
+        # vllm metrics
+        self._vllm_metrics = {}
+
+    def record_vllm_metrics(self, metrics: Dict[str, float]) -> None:
+        """Record vLLM metrics from a MetricsSnapshot.
+
+        Parameters
+        ----------
+        metrics : Dict[str, float]
+            A dictionary of metric names and their corresponding values to record.
+        """
+
+        with self._lock:
+            for name, value in metrics.items():
+                self._vllm_metrics[name] = self._vllm_metrics.get(name, 0.0) + value
+
     def record_success(
         self,
         latency: float,
@@ -85,6 +101,18 @@ class RunnerStats:
             self._total += 1
             self._timeout += 1
             self._total_request_bytes += request_size
+
+    def vllm_stats(self) -> Dict[str, float]:
+        """Return the cumulative vLLM metrics recorded so far.
+
+        Returns
+        -------
+        Dict[str, float]
+            A dictionary of vLLM metric names and their cumulative values.
+        """
+
+        with self._lock:
+            return dict(self._vllm_metrics)
 
     def stats(self) -> Dict[str, Any]:
         """Return a snapshot of the current statistics in a thread-safe manner.
