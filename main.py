@@ -99,6 +99,8 @@ def _run_benchmark(
         # enqueue one job per entry (runners pick jobs from the shared queue)
         if random_populate:
             random_range = random.randint(1, clients)
+            print(f"Enqueueing {random_range} jobs for entry (random_populate enabled)")
+            
             for _ in range(random_range):
                 jobs.put(
                     {
