@@ -39,12 +39,16 @@ python3 main.py plugin simulator --help
 * `--data-dir DIR` — Dataset cache directory (default: `./data`)
 
 Bench command options (`python3 main.py bench ...`):
+
 * `--list` — List available benchmarks
 * `--stop-after N` — Stop after processing N entries (for quick testing; default: `0` means no limit)
 * `--clients N` — Number of concurrent client workers (default: `1`)
 * `--truncate` - Truncate input requests based on the maximum model len
+* `--random-populate` - Sample benchmark entries randomly instead of sequentially
+* `--seed N` - RNG seed for deterministic sampling in `--random-populate` mode
 
 Plugin command options (`python3 main.py plugin ...`):
+
 * `--list` — List available plugins
 * `PLUGIN_NAME` — Plugin to run (currently: `simulator`)
 * Each plugin defines its own arguments and help under its subcommand
@@ -64,6 +68,9 @@ python3 main.py bench --data-dir /tmp/datasets narrativeqa
 
 # Run with 10 concurrent clients
 python3 main.py bench --clients 10 narrativeqa
+
+# Deterministic random sampling across clients
+python3 main.py bench --clients 100 --random-populate --seed 42 alpaca
 
 # List plugins
 python3 main.py plugin --list

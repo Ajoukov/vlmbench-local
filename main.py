@@ -1,6 +1,7 @@
 import argparse
 import os
 import queue
+import random
 import sys
 import time
 from typing import Any, Dict
@@ -26,6 +27,9 @@ def _run_benchmark(
     truncate: bool = False,
     max_model_len: int = 0,
     enable_metrics: bool = False,
+    random_populate: bool = False,
+    seed: int | None = None,
+    random_batch_size: int = 100,
 ):
     """Run a single benchmark: iterate its entries, send HTTP requests, and print the status code for each.
 
@@ -47,6 +51,12 @@ def _run_benchmark(
         Maximum model context length (required if truncate is True; default: 0).
     enable_metrics : bool, optional
         Whether to enable metrics collection (fetches cumulative counter values from /metrics endpoint before and after benchmarks, and prints the differences; default: False).
+    random_populate : bool, optional
+        Whether to populate client requests by randomly sampling benchmark entries (default: False).
+    seed : int | None, optional
+        RNG seed used for random population to produce deterministic sampling.
+    random_batch_size : int, optional
+        Number of entries to buffer at a time in random mode (default: 100).
     """
 
     print(f"\n=== Benchmark: {name} (metrics={enable_metrics}) ===")
@@ -73,7 +83,30 @@ def _run_benchmark(
     for r in runners:
         r.start()
 
-    # iterate benchmark entries and enqueue jobs
+    rng = random.Random(seed) if random_populate else None
+    seed_info = "None" if seed is None else str(seed)
+    if random_populate:
+        print(
+            f"{name}: random populate enabled (seed={seed_info}, batch_size={random_batch_size})"
+        )
+
+    def _flush_random_batch(batch_templates: list[Dict[str, Any]]) -> None:
+        # Randomize request order per client within this batch while keeping memory bounded.
+        for _ in range(clients):
+            shuffled = list(batch_templates)
+            rng.shuffle(shuffled)
+            for selected in shuffled:
+                jobs.put(
+                    {
+                        "name": name,
+                        "url": selected["url"],
+                        "headers": selected["headers"],
+                        "payload": selected["payload"],
+                    }
+                )
+
+    # stream benchmark entries and enqueue jobs as we go
+    batch_templates: list[Dict[str, Any]] = []
     for result in benchmark.run():
         uri = result["uri"]
         payload = result["payload"]
@@ -91,19 +124,31 @@ def _run_benchmark(
                 timeout_s=vars["REQUEST_TIMEOUT"],
             )
 
-        url = f"{endpoint.rstrip('/')}/v1{uri}"
-        headers = {"Content-Type": "application/json"}
+        template = {
+            "url": f"{endpoint.rstrip('/')}/v1{uri}",
+            "headers": {"Content-Type": "application/json"},
+            "payload": payload,
+        }
 
-        # enqueue one job per entry (runners pick jobs from the shared queue)
-        for _ in range(clients):
-            jobs.put(
-                {
-                    "name": name,
-                    "url": url,
-                    "headers": headers,
-                    "payload": payload,
-                }
-            )
+        if random_populate:
+            batch_templates.append(template)
+            if len(batch_templates) >= random_batch_size:
+                _flush_random_batch(batch_templates)
+                batch_templates.clear()
+        else:
+            # enqueue one job per entry per client (current default behavior)
+            for _ in range(clients):
+                jobs.put(
+                    {
+                        "name": name,
+                        "url": template["url"],
+                        "headers": template["headers"],
+                        "payload": template["payload"],
+                    }
+                )
+
+    if random_populate and batch_templates:
+        _flush_random_batch(batch_templates)
 
     # signal runners to stop (one None per runner)
     for _ in runners:
@@ -217,6 +262,23 @@ def main():
         help="Number of concurrent client workers (default: 1)",
     )
     bench_parser.add_argument(
+        "--random-populate",
+        action="store_true",
+        help="Populate requests by random sampling from benchmark entries",
+    )
+    bench_parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Seed for random population (deterministic when used with --random-populate)",
+    )
+    bench_parser.add_argument(
+        "--random-batch-size",
+        type=int,
+        default=100,
+        help="Number of entries to buffer per batch in --random-populate mode (default: 100)",
+    )
+    bench_parser.add_argument(
         "benchmarks",
         nargs="*",
         help="Benchmark names to run",
@@ -267,6 +329,11 @@ def main():
         if args.clients < 1:
             print("Error: --clients must be >= 1.", file=sys.stderr)
             raise RuntimeError("Invalid number of clients")
+
+        # check that random batch size is a positive integer
+        if args.random_batch_size < 1:
+            print("Error: --random-batch-size must be >= 1.", file=sys.stderr)
+            raise RuntimeError("Invalid random batch size")
 
         # check that specified benchmarks exist
         for name in args.benchmarks:
@@ -328,6 +395,8 @@ def main():
                 max_model_len=max_model_len,
                 enable_metrics=args.enable_metrics,
                 random_populate=args.random_populate,
+                seed=args.seed,
+                random_batch_size=args.random_batch_size,
             )
 
             total_n += n
