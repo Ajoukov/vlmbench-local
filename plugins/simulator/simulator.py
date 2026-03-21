@@ -1,10 +1,9 @@
 import argparse
 import math
+import queue
 import random
 import time
 from typing import Optional
-
-import requests
 
 from plugins.simulator.text_sources import (
     TaskType,
@@ -12,12 +11,11 @@ from plugins.simulator.text_sources import (
     build_prompt_pair,
     make_source,
 )
-from src.prometheus import fetch_snapshot
+from src.runner import Runner
+from src.runner.stats import RunnerStats
 from src.tokens import truncate_payload
 
-# ---------------------------------------------------------------------------
-# Default parameters
-# ---------------------------------------------------------------------------
+### default parameters ###
 
 PROMPT_RATIO = 1.0 / 3.0
 REQUEST_INTERVAL_S = 1.0
@@ -27,18 +25,13 @@ MIN_PROMPT_TOKENS = 16
 MIN_GEN_TOKENS = 16
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _split_tokens(total_tokens: int) -> tuple[int, int]:
     """Split *total_tokens* into (prompt_tokens, gen_tokens)."""
+
     usable = max(1, total_tokens - 2)
     prompt_tokens = max(MIN_PROMPT_TOKENS, int(usable * PROMPT_RATIO))
     gen_tokens = max(MIN_GEN_TOKENS, usable - prompt_tokens)
 
-    # Safety clamp
     if prompt_tokens + gen_tokens > usable:
         gen_tokens = max(MIN_GEN_TOKENS, usable - prompt_tokens)
     if prompt_tokens + gen_tokens > usable:
@@ -49,45 +42,29 @@ def _split_tokens(total_tokens: int) -> tuple[int, int]:
 
 def _build_prompt(prefix_text: str, suffix: str) -> str:
     """Concatenate the shared *prefix_text* with a task-instruction *suffix*."""
+
     return f"{prefix_text}\n\n{suffix}"
 
 
 def _send_request(
     endpoint: str,
-    completions_url: str,
     model: str,
     prompt: str,
     prompt_tokens: int,
     gen_tokens: int,
-    request_timeout_s: float,
-) -> None:
+) -> dict:
     payload: dict = {
         "model": model,
         "prompt": prompt,
         "max_tokens": gen_tokens,
         "temperature": 0,
-        "stream": True,
     }
+
     payload = truncate_payload(
         endpoint, payload, max_model_len=prompt_tokens + gen_tokens + 2
     )
-    try:
-        with requests.post(
-            completions_url,
-            json=payload,
-            stream=True,
-            timeout=request_timeout_s,
-        ) as r:
-            r.raise_for_status()
-            for _ in r.iter_lines():
-                pass
-    except Exception as e:
-        print(f"  [ERROR] Simulator request failed: {e}")
 
-
-# ---------------------------------------------------------------------------
-# Main simulator
-# ---------------------------------------------------------------------------
+    return payload
 
 
 def run_simulator(
@@ -146,6 +123,7 @@ def run_simulator(
     request_timeout_s:
         Per-request HTTP timeout in seconds.
     """
+
     completions_url = f"{endpoint.rstrip('/')}/v1/completions"
 
     # ---- KV-token budget -------------------------------------------------
@@ -201,6 +179,7 @@ def run_simulator(
     # ---- Build the shared prefix via the text source ---------------------
     print(f"\nLoading text source '{source_type}'…")
     source: TextSource = make_source(source_type, cache_dir=cache_dir, seed=42)
+    
     # Deterministic seed=42 → same passage every time this function is called,
     # which is exactly what we want so the KV cache prefix is stable across runs.
     seed_rng = random.Random(42)
@@ -218,6 +197,19 @@ def run_simulator(
     print(f"  Task: {pair.task.value}\n")
 
     suffix_rng = random.Random()  # unseeded → fresh suffix templates each run
+
+    # Reuse the common request execution path used by benchmarks.
+    jobs: "queue.Queue[dict | None]" = queue.Queue()
+    stats = RunnerStats()
+    runner = Runner(
+        runner_id=1,
+        endpoint=endpoint,
+        jobs=jobs,
+        stats=stats,
+        request_timeout=request_timeout_s,
+        enable_metrics=enable_metrics,
+    )
+    runner.start()
 
     # ---- Run loop --------------------------------------------------------
     for run_idx in range(n_runs):
@@ -241,36 +233,26 @@ def run_simulator(
             label = f"  [{req_idx + 1:>3}/{requests_per_run}] task={req_pair.task.value:<10}"
             print(label, end=" ", flush=True)
 
-            if enable_metrics:
-                pre_metrics = fetch_snapshot(
-                    base_url=endpoint, timeout=request_timeout_s
-                )
-
-            _send_request(
+            payload = _send_request(
                 endpoint=endpoint,
-                completions_url=completions_url,
                 model=model,
                 prompt=prompt,
                 prompt_tokens=prompt_tokens,
                 gen_tokens=gen_tokens,
-                request_timeout_s=request_timeout_s,
             )
-
-            if enable_metrics and pre_metrics:
-                post_metrics = fetch_snapshot(
-                    base_url=endpoint, timeout=request_timeout_s
-                )
+            jobs.put(
+                {
+                    "name": "simulator",
+                    "url": completions_url,
+                    "headers": {"Content-Type": "application/json"},
+                    "payload": payload,
+                }
+            )
+            jobs.join()
 
             completed += actual_req_tokens
             kv_filled = min(completed, effective_kv)
             print(f"KV filled: {kv_filled:>8} / {effective_kv}")
-
-            if enable_metrics and pre_metrics and post_metrics:
-                values = post_metrics.delta(pre_metrics)
-                metrics_str = " ".join(
-                    f"{metric}={value:.2f}" for metric, value in values.items()
-                )
-                print(f"{metrics_str}")
 
             if req_idx < requests_per_run - 1:
                 time.sleep(request_interval_s)
@@ -282,9 +264,24 @@ def run_simulator(
         if run_idx < n_runs - 1:
             time.sleep(run_interval_s)
 
+    jobs.put(None)
+    jobs.join()
+    runner.join()
+
+    summary = stats.stats()
     print("\n" + "=" * 56)
     print("  Simulation complete.")
     print("=" * 56)
+    print(
+        f"  Requests: {summary['total_requests']}, ok: {summary['success']}, failed: {summary['error'] + summary['timeout']}"
+    )
+    print(f"  Total request bytes : {summary['total_request_bytes']}")
+    print(f"  Total response bytes: {summary['total_response_bytes']}")
+    print(f"  Avg latency         : {summary['avg_latency_ms']:.2f} ms")
+    print(f"  P95 latency         : {summary['p95_latency_ms']:.2f} ms")
+    vllm_metrics = stats.vllm_stats()
+    for metric_name, value in vllm_metrics.items():
+        print(f"  vllm:'{metric_name}': {value}")
 
 
 def simulate(
