@@ -8,12 +8,9 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-# ---------------------------------------------------------------------------
-# Task types
-# ---------------------------------------------------------------------------
-
 class TaskType(str, enum.Enum):
     """Supported prompt task types."""
+
     SUMMARIZE = "summarize"
     QA        = "qa"
     CHAT      = "chat"
@@ -64,10 +61,6 @@ _SUFFIX_TEMPLATES: dict[TaskType, list[str]] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# PromptPair
-# ---------------------------------------------------------------------------
-
 @dataclass
 class PromptPair:
     """A (prefix, suffix) pair ready for the simulator."""
@@ -87,12 +80,9 @@ class PromptPair:
     @property
     def full_prompt(self) -> str:
         """prefix + blank line + suffix."""
+
         return f"{self.prefix}\n\n{self.suffix}"
 
-
-# ---------------------------------------------------------------------------
-# Abstract base
-# ---------------------------------------------------------------------------
 
 class TextSource(ABC):
     """Abstract text backend."""
@@ -106,31 +96,15 @@ class TextSource(ABC):
 
     def fetch_qa_pair(self, max_chars: int = 3000) -> tuple[str, str]:
         """Return ``(context, question)``.  Default implementation uses fetch_passage."""
+
         passage = self.fetch_passage(max_chars=max_chars)
         question = "What is the main topic discussed in this passage?"
+
         return passage, question
 
 
-# ---------------------------------------------------------------------------
-# WikitextSource
-# ---------------------------------------------------------------------------
-
 class WikitextSource(TextSource):
-    """
-    Draws passages from the *wikitext-103* HuggingFace dataset.
-
-    Requires ``datasets`` (already a project dependency).
-    Data is cached locally after the first download — fully offline thereafter.
-
-    Parameters
-    ----------
-    split:
-        Dataset split to use (``"train"``, ``"validation"``, or ``"test"``).
-    cache_dir:
-        HuggingFace cache directory.  Passed directly to ``load_dataset``.
-    seed:
-        Random seed for passage selection.
-    """
+    """Draws passages from the *wikitext-103* HuggingFace dataset."""
 
     name = "wikitext"
 
@@ -141,57 +115,45 @@ class WikitextSource(TextSource):
         seed: Optional[int] = None,
     ) -> None:
         import datasets as hfds
+
         self._ds = hfds.load_dataset(
             "wikitext",
             "wikitext-103-raw-v1",
             split=split,
             cache_dir=cache_dir,
         )
+
         self._rng = random.Random(seed)
         self._size = len(self._ds)
 
     def fetch_passage(self, min_chars: int = 500, max_chars: int = 3000) -> str:
-        """
-        Concatenate consecutive wikitext rows until we have at least *min_chars*
+        """Concatenate consecutive wikitext rows until we have at least *min_chars*
         characters, then trim to *max_chars*.
         """
+
         start = self._rng.randint(0, self._size - 1)
         parts: list[str] = []
         total = 0
+
         for offset in range(2000):
             idx = (start + offset) % self._size
             text = self._ds[idx]["text"].strip()
+
             if not text or text.startswith(" ="):
                 continue
+
             parts.append(text)
             total += len(text) + 1
             if total >= min_chars:
                 break
+        
         passage = " ".join(parts)[:max_chars].strip()
+        
         return passage if len(passage) >= min_chars else _FALLBACK_TEXT
 
 
-# ---------------------------------------------------------------------------
-# SQuADSource
-# ---------------------------------------------------------------------------
-
 class SQuADSource(TextSource):
-    """
-    Draws ``(context, question)`` pairs from *SQuAD v1.1* via HuggingFace datasets.
-
-    ``fetch_passage`` returns the context paragraph.
-    ``fetch_qa_pair`` returns ``(context, genuine_question)`` — ideal for the
-    ``TaskType.QA`` task because the question is directly answerable from the context.
-
-    Parameters
-    ----------
-    split:
-        Dataset split (``"train"`` or ``"validation"``).
-    cache_dir:
-        HuggingFace cache directory.
-    seed:
-        Random seed.
-    """
+    """Draws (context, question) pairs from *SQuAD v1.1* via HuggingFace datasets."""
 
     name = "squad"
 
@@ -202,11 +164,13 @@ class SQuADSource(TextSource):
         seed: Optional[int] = None,
     ) -> None:
         import datasets as hfds
+
         self._ds = hfds.load_dataset(
             "rajpurkar/squad",
             split=split,
             cache_dir=cache_dir,
         )
+
         self._rng = random.Random(seed)
         self._size = len(self._ds)
 
@@ -217,28 +181,12 @@ class SQuADSource(TextSource):
     def fetch_qa_pair(self, max_chars: int = 3000) -> tuple[str, str]:  # type: ignore[override]
         idx = self._rng.randint(0, self._size - 1)
         row = self._ds[idx]
+
         return row["context"][:max_chars], row["question"]
 
 
-# ---------------------------------------------------------------------------
-# WikipediaSource
-# ---------------------------------------------------------------------------
-
 class WikipediaSource(TextSource):
-    """
-    Fetches real Wikipedia article text on-the-fly.
-
-    Requires the ``wikipedia`` package::
-
-        pip install wikipedia
-
-    Parameters
-    ----------
-    lang:
-        Wikipedia language code (default ``"en"``).
-    seed:
-        Random seed for topic / article selection.
-    """
+    """Fetches real Wikipedia article text on-the-fly."""
 
     name = "wikipedia"
 
@@ -250,6 +198,7 @@ class WikipediaSource(TextSource):
                 "WikipediaSource requires the `wikipedia` package. "
                 "Install it with:  pip install wikipedia"
             ) from exc
+        
         self._wp = _wp
         self._wp.set_lang(lang)
         self._rng = random.Random(seed)
@@ -259,28 +208,30 @@ class WikipediaSource(TextSource):
             try:
                 topic = self._rng.choice(_WIKIPEDIA_TOPICS)
                 results = self._wp.search(topic, results=6)
+
                 if not results:
                     continue
+
                 title = self._rng.choice(results)
                 page = self._wp.page(title, auto_suggest=False)
-                # Strip section headings that start with ==
+
+                # strip section headings that start with ==
                 lines = [line for line in page.content.splitlines() if not line.startswith("=")]
                 text = " ".join(lines).strip()[:max_chars]
                 if len(text) >= min_chars:
                     return text
+                
             except Exception:
                 continue
+
         return _FALLBACK_TEXT
 
     def fetch_qa_pair(self, max_chars: int = 3000) -> tuple[str, str]:
         passage = self.fetch_passage(max_chars=max_chars)
         question = "What are the key facts presented in this passage?"
+
         return passage, question
 
-
-# ---------------------------------------------------------------------------
-# Prompt-pair builder
-# ---------------------------------------------------------------------------
 
 _DEFAULT_TASKS = [
     TaskType.SUMMARIZE,
@@ -297,8 +248,7 @@ def build_prompt_pair(
     max_prefix_chars: int = 3000,
     rng: Optional[random.Random] = None,
 ) -> PromptPair:
-    """
-    Build a :class:`PromptPair` from *source*.
+    """Build a PromptPair from source.
 
     Parameters
     ----------
@@ -312,51 +262,50 @@ def build_prompt_pair(
     rng:
         Optional :class:`random.Random` for reproducible suffix selection.
     """
+
     if rng is None:
         rng = random.Random()
 
-    # Default task selection
+    # default task selection
     if task is None:
         task = TaskType.QA if isinstance(source, SQuADSource) else rng.choice(_DEFAULT_TASKS)
 
-    # Fetch passage (and question if QA + SQuAD)
+    # fetch passage (and question if QA + SQuAD)
     if task == TaskType.QA and isinstance(source, SQuADSource):
         context, question = source.fetch_qa_pair(max_chars=max_prefix_chars)
         suffix = f"Based on the passage above, answer the following question:\n{question}"
+
         return PromptPair(
             prefix=context, suffix=suffix, task=task, source_name=source.name
         )
 
     passage = source.fetch_passage(min_chars=min_prefix_chars, max_chars=max_prefix_chars)
     suffix = rng.choice(_SUFFIX_TEMPLATES[task])
+
     return PromptPair(
         prefix=passage, suffix=suffix, task=task, source_name=source.name
     )
 
-
-# ---------------------------------------------------------------------------
-# Convenience factory
-# ---------------------------------------------------------------------------
 
 def make_source(
     source_type: str = "wikitext",
     cache_dir: Optional[str] = None,
     seed: Optional[int] = None,
 ) -> TextSource:
-    """
-    Instantiate a :class:`TextSource` by name.
+    """Instantiate a :class:`TextSource` by name.
 
     Parameters
     ----------
     source_type:
-        ``"wikitext"``   – :class:`WikitextSource` (default, offline-friendly)\n
-        ``"squad"``      – :class:`SQuADSource` (real QA pairs)\n
-        ``"wikipedia"``  – :class:`WikipediaSource` (live; needs ``pip install wikipedia``)
+        ``"wikitext"``   :class:`WikitextSource` (default, offline-friendly)\n
+        ``"squad"``      :class:`SQuADSource` (real QA pairs)\n
+        ``"wikipedia"``  :class:`WikipediaSource` (live; needs ``pip install wikipedia``)
     cache_dir:
         HuggingFace dataset cache directory (ignored for ``"wikipedia"``).
     seed:
         Random seed passed to the source.
     """
+
     key = source_type.lower()
     if key == "wikitext":
         return WikitextSource(cache_dir=cache_dir, seed=seed)
@@ -369,10 +318,6 @@ def make_source(
         "Valid choices: 'wikitext', 'squad', 'wikipedia'."
     )
 
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 
 _WIKIPEDIA_TOPICS = [
     "history", "science", "mathematics", "literature", "philosophy",
