@@ -328,7 +328,7 @@ def run_simulator(
     average_latency = summary["avg_latency_ms"]
     p95_latency = summary["p95_latency_ms"]
 
-    print(f"--- {n} requests, {ok} ok, {fail} failed ---")
+    print(f"\n--- {n} requests, {ok} ok, {fail} failed ---")
     print(f"Total request bytes: {total_request_bytes}")
     print(f"Total response bytes: {total_response_bytes}")
     print(f"Average latency: {average_latency:.2f} ms")
@@ -337,7 +337,7 @@ def run_simulator(
     # print vLLM metrics if available
     vllm_metrics = stats.vllm_stats()
     for metric_name, value in vllm_metrics.items():
-        print(f"vllm:'{metric_name}': {value}")
+        print(f"vllm:{metric_name} = {value}")
 
 
 def register_parser(
