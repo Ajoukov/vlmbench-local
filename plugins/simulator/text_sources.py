@@ -12,10 +12,10 @@ class TaskType(str, enum.Enum):
     """Supported prompt task types."""
 
     SUMMARIZE = "summarize"
-    QA        = "qa"
-    CHAT      = "chat"
-    EXPLAIN   = "explain"
-    CONTINUE  = "continue"
+    QA = "qa"
+    CHAT = "chat"
+    EXPLAIN = "explain"
+    CONTINUE = "continue"
 
 
 _SUFFIX_TEMPLATES: dict[TaskType, list[str]] = {
@@ -25,12 +25,27 @@ _SUFFIX_TEMPLATES: dict[TaskType, list[str]] = {
         "Provide a brief overview of the main ideas from the passage above.",
         "In your own words, summarize what the text above is about.",
         "Condense the above passage into a single short paragraph.",
+        "Capture the essential message of the passage above in a few sentences.",
+        "State the central ideas from the text above without unnecessary detail.",
+        "Produce a short summary that preserves the most important information.",
+        "Summarize the passage above for someone who has not read it.",
+        "Write a compact explanation of the main content presented above.",
+        "Extract the most important insights from the passage above.",
+        "Reduce the above text to its core meaning in concise form.",
     ],
     TaskType.EXPLAIN: [
         "Explain the key concepts from the passage above as if speaking to a curious beginner.",
         "What are the most important ideas in the text above? Explain each one clearly.",
         "Describe the main points from the text above in plain, simple language.",
         "Break down the core ideas of the passage above and explain them step by step.",
+        "Clarify the meaning of the passage above in an accessible way.",
+        "Explain the underlying concepts in the text above with practical examples.",
+        "Rewrite the ideas above so they are easier for a newcomer to understand.",
+        "Teach the content of the passage above as if introducing it in a classroom.",
+        "Explain why the ideas in the passage above matter.",
+        "Interpret the text above and describe its important implications.",
+        "Walk through the main concepts from the passage above carefully.",
+        "Explain the subject of the passage above using straightforward language.",
     ],
     TaskType.CHAT: [
         (
@@ -45,18 +60,43 @@ _SUFFIX_TEMPLATES: dict[TaskType, list[str]] = {
             "Based on the passage above, write a short dialogue between a curious student "
             "and an expert. The expert should clarify the main ideas in the text."
         ),
+        (
+            "Simulate a conversation where a reader asks follow-up questions about the "
+            "passage above and an assistant answers clearly."
+        ),
+        (
+            "Create a short educational exchange about the text above between two people "
+            "trying to understand its main message."
+        ),
+        (
+            "Imagine someone is confused after reading the passage above. Write a brief "
+            "assistant response that helps them understand it."
+        ),
+        ("Write a natural question-and-answer exchange inspired by the passage above."),
     ],
     TaskType.CONTINUE: [
         "Continue the text above in the same writing style for at least two more paragraphs.",
         "Write the next paragraph that would naturally follow the passage above.",
         "Extend the above passage with additional relevant facts and detail.",
         "Add a concluding section to the passage above that ties the ideas together.",
+        "Develop the ideas above further while preserving tone and structure.",
+        "Continue writing as if the original author were expanding the topic.",
+        "Add another section that logically follows the discussion above.",
+        "Write a continuation that deepens the explanation already given.",
+        "Expand the passage above by introducing a related point or example.",
+        "Carry the text forward naturally without changing its style.",
     ],
-    # QA suffix is built dynamically when the question is available.
     TaskType.QA: [
         "Based on the passage above, what is the main topic being discussed? Explain in detail.",
         "What conclusions can be drawn from the text above? Support your answer with evidence from the passage.",
         "Identify and explain three key facts presented in the passage above.",
+        "What is the central argument or message of the passage above?",
+        "Answer a question that naturally arises from the text above and justify your response.",
+        "What important evidence does the passage above provide?",
+        "Which ideas in the text above are most critical for understanding it?",
+        "What can a reader infer from the passage above?",
+        "Describe one major takeaway from the passage above and explain why it matters.",
+        "What problem or concept is the passage above trying to address?",
     ],
 }
 
@@ -146,9 +186,9 @@ class WikitextSource(TextSource):
             total += len(text) + 1
             if total >= min_chars:
                 break
-        
+
         passage = " ".join(parts)[:max_chars].strip()
-        
+
         return passage if len(passage) >= min_chars else _FALLBACK_TEXT
 
 
@@ -198,7 +238,7 @@ class WikipediaSource(TextSource):
                 "WikipediaSource requires the `wikipedia` package. "
                 "Install it with:  pip install wikipedia"
             ) from exc
-        
+
         self._wp = _wp
         self._wp.set_lang(lang)
         self._rng = random.Random(seed)
@@ -216,11 +256,15 @@ class WikipediaSource(TextSource):
                 page = self._wp.page(title, auto_suggest=False)
 
                 # strip section headings that start with ==
-                lines = [line for line in page.content.splitlines() if not line.startswith("=")]
+                lines = [
+                    line
+                    for line in page.content.splitlines()
+                    if not line.startswith("=")
+                ]
                 text = " ".join(lines).strip()[:max_chars]
                 if len(text) >= min_chars:
                     return text
-                
+
             except Exception:
                 continue
 
@@ -268,23 +312,29 @@ def build_prompt_pair(
 
     # default task selection
     if task is None:
-        task = TaskType.QA if isinstance(source, SQuADSource) else rng.choice(_DEFAULT_TASKS)
+        task = (
+            TaskType.QA
+            if isinstance(source, SQuADSource)
+            else rng.choice(_DEFAULT_TASKS)
+        )
 
     # fetch passage (and question if QA + SQuAD)
     if task == TaskType.QA and isinstance(source, SQuADSource):
         context, question = source.fetch_qa_pair(max_chars=max_prefix_chars)
-        suffix = f"Based on the passage above, answer the following question:\n{question}"
+        suffix = (
+            f"Based on the passage above, answer the following question:\n{question}"
+        )
 
         return PromptPair(
             prefix=context, suffix=suffix, task=task, source_name=source.name
         )
 
-    passage = source.fetch_passage(min_chars=min_prefix_chars, max_chars=max_prefix_chars)
+    passage = source.fetch_passage(
+        min_chars=min_prefix_chars, max_chars=max_prefix_chars
+    )
     suffix = rng.choice(_SUFFIX_TEMPLATES[task])
 
-    return PromptPair(
-        prefix=passage, suffix=suffix, task=task, source_name=source.name
-    )
+    return PromptPair(prefix=passage, suffix=suffix, task=task, source_name=source.name)
 
 
 def make_source(
@@ -320,12 +370,34 @@ def make_source(
 
 
 _WIKIPEDIA_TOPICS = [
-    "history", "science", "mathematics", "literature", "philosophy",
-    "geography", "biology", "physics", "economics", "technology",
-    "art", "music", "architecture", "astronomy", "linguistics",
-    "medicine", "engineering", "politics", "sociology", "ecology",
-    "climate", "evolution", "democracy", "industrial revolution",
-    "quantum mechanics", "Renaissance", "ancient Rome", "language",
+    "history",
+    "science",
+    "mathematics",
+    "literature",
+    "philosophy",
+    "geography",
+    "biology",
+    "physics",
+    "economics",
+    "technology",
+    "art",
+    "music",
+    "architecture",
+    "astronomy",
+    "linguistics",
+    "medicine",
+    "engineering",
+    "politics",
+    "sociology",
+    "ecology",
+    "climate",
+    "evolution",
+    "democracy",
+    "industrial revolution",
+    "quantum mechanics",
+    "Renaissance",
+    "ancient Rome",
+    "language",
 ]
 
 _FALLBACK_TEXT = textwrap.dedent("""\

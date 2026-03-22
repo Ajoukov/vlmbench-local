@@ -238,7 +238,7 @@ def run_simulator(
     print(f"  «{prefix_text[:160].rstrip()}…»")
     print(f"  Task: {pair.task.value}\n")
 
-    suffix_rng = random.Random()  # unseeded, fresh suffix templates each run
+    suffix_rng = random.Random(seed)
 
     # reuse the common request execution path used by benchmarks.
     jobs: "queue.Queue[dict | None]" = queue.Queue()
