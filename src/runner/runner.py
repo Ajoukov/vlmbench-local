@@ -120,13 +120,17 @@ class Runner(threading.Thread):
 
         # calculate request size in bytes
         request_body = json.dumps(payload)
-        request_size = len(request_body.encode("utf-8"))
 
-        # define metrics variables
+        # define statistics variables
+        http_status: int = 0
+        http_req_bytes: int = len(request_body.encode("utf-8"))
+        http_res_bytes: int = 0
+        http_latency: float = 0
         pre_metrics: MetricsSnapshot = None
         post_metrics: MetricsSnapshot = None
 
         try:
+            # if metrics collection is enabled, take a snapshot of metrics before sending the request
             if self._enable_metrics:
                 pre_metrics = fetch_snapshot(base_url=self._endpoint, timeout=self._rto)
 
@@ -142,38 +146,33 @@ class Runner(threading.Thread):
             )
 
             # calculate latency in milliseconds
-            latency = (time.perf_counter() - start) * 1000
+            http_latency = (time.perf_counter() - start) * 1000
 
+            # if metrics collection is enabled, take a snapshot of metrics after receiving the response
             if self._enable_metrics and pre_metrics:
                 post_metrics = fetch_snapshot(
                     base_url=self._endpoint, timeout=self._rto
                 )
 
-            status = response.status_code
-            response_size = len(response.content)
+            http_status = response.status_code
+            http_res_bytes = len(response.content)
 
             # record success or error based on status code
-            if status == 200:
-                self._stats.record_success(latency, request_size, response_size)
+            if http_status == 200:
+                self._stats.record_success(http_latency, http_req_bytes, http_res_bytes)
             else:
-                self._stats.record_error(latency, request_size, response_size)
-
-            print(
-                f"[{status}] {name} "
-                f"{self.name} "
-                f"latency={latency:.2f}ms "
-                f"req={request_size}B "
-                f"resp={response_size}B "
-            )
+                self._stats.record_error(http_latency, http_req_bytes, http_res_bytes)
 
         except requests.exceptions.Timeout:
+            http_status = 408
+            http_latency = (
+                self._rto * 1000
+            )  # set latency to the request timeout value in milliseconds
+
             # on timeout record a timeout, but do post metrics poll if enabled
-            self._stats.record_timeout(request_size)
+            self._stats.record_timeout(http_req_bytes)
 
-            print(
-                f"[408] {name} {self.name} request timed out after {self._rto} seconds"
-            )
-
+            # if metrics collection is enabled, take a snapshot of metrics after the timeout
             if self._enable_metrics and pre_metrics:
                 post_metrics = fetch_snapshot(
                     base_url=self._endpoint, timeout=self._rto
@@ -183,12 +182,21 @@ class Runner(threading.Thread):
             raise RuntimeError(f"Error while processing an entry: {e}")
 
         # calculate and print the differences in metrics values before and after the request
+        metrics_str = ""
         if self._enable_metrics and pre_metrics and post_metrics:
             values = post_metrics.delta(pre_metrics)
+            self._stats.record_vllm_metrics(values)
+
             metrics_str = " , ".join(
                 f"{metric}={value:.2f}" for metric, value in values.items()
             )
 
-            print(f"{metrics_str}")
-
-            self._stats.record_vllm_metrics(values)
+        # log the process
+        print(
+            f"[{http_status}] {name} "
+            f"{self.name} "
+            f"latency={http_latency:.2f}ms "
+            f"req={http_req_bytes}B "
+            f"resp={http_res_bytes}B "
+            f"\n{metrics_str}"
+        )
