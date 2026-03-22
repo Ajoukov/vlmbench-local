@@ -350,7 +350,7 @@ def register_parser(
         "simulator",
         parents=parents,
         help="Run KV-cache prefix simulator",
-        description="Run synthetic KV-cache prefix-sharing simulation",
+        description="Run synthetic KV-cache prefix-sharing simulation.",
     )
     parser.add_argument(
         "--total-kv-tokens",

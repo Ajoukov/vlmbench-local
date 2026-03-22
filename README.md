@@ -1,6 +1,6 @@
 # VLMBench
 
-A scalable benchmarking framework for evaluating LLM inference performance via the OpenAI-compatible API. It is specifically designed for testing vLLM instances, supporting workloads from small micro-benchmarks (latency, token throughput) to large-scale stress tests (high concurrency, multi-GPU scaling). The system enables configurable experiments and detailed metric collection to analyze performance, scalability, and stability under different deployment conditions.
+A scalable benchmarking framework for evaluating LLM inferenced via the OpenAI-compatible API using vLLM serving engine. It is specifically designed for testing vLLM instances, supporting workloads from small micro-benchmarks (latency, token throughput) to large-scale stress tests (high concurrency, multi-GPU scaling). The system enables configurable experiments and detailed metric collection to analyze performance, scalability, and stability under different deployment conditions.
 
 ## Prereqs
 
