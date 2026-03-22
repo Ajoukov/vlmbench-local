@@ -17,12 +17,12 @@ Commands:
 
 These are available for `bench` and plugin subcommands because they share common parser parents.
 
-| Flag                          | Type   | Default                                          | Description                                                                      |
-|-------------------------------|--------|--------------------------------------------------|----------------------------------------------------------------------------------|
-| `--endpoint`                  | string | `http://127.0.0.1:8080` (or `DEFAULT_ENDPOINT`)  | Base URL of the vLLM OpenAI-compatible server.                                   |
-| `--model`                     | string | auto-detect                                      | Model id. If omitted, VLMBench queries `/v1/models` and uses the first model id. |
-| `--data-dir`                  | path   | `/mnt/gpfs/llm-datasets` (or `DEFAULT_DATA_DIR`) | Dataset/cache directory. If `HF_HOME` is set, it overrides this internally.      |
-| `--enable-prometheus-metrics` | flag   | off                                              | Collects Prometheus counters/histograms before and after run and reports deltas. |
+| Flag                          | Type   | Default                                         | Description                                                                      |
+|-------------------------------|--------|-------------------------------------------------|----------------------------------------------------------------------------------|
+| `--endpoint`                  | string | `http://127.0.0.1:8080` (or `DEFAULT_ENDPOINT`) | Base URL of the vLLM OpenAI-compatible server.                                   |
+| `--model`                     | string | auto-detect                                     | Model id. If omitted, VLMBench queries `/v1/models` and uses the first model id. |
+| `--data-dir`                  | path   | `llm-datasets` (or `DEFAULT_DATA_DIR`)          | Dataset/cache directory. If `HF_HOME` is set, it overrides this internally.      |
+| `--enable-prometheus-metrics` | flag   | off                                             | Collects Prometheus counters/histograms before and after run and reports deltas. |
 
 Example:
 

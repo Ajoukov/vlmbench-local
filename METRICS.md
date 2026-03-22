@@ -123,7 +123,7 @@ vllm:prefix_cache_hits_total 96.0
 From this sample, the approximate prefix hit ratio is:
 
 $$
-\frac{96}{413} \approx 0.232 \text{ (23.2%)}
+\frac{96}{413} \approx 0.232 \text{ (23.2\%)}
 $$
 
 ## Practical Tips

@@ -62,9 +62,9 @@ python3 main.py bench [OPTIONS] BENCHMARK [BENCHMARK ...]
 
 Commonly used options:
 
-- `--endpoint`: vLLM base endpoint (default comes from `DEFAULT_ENDPOINT`, usually `http://127.0.0.1:8080`)
+- `--endpoint`: vLLM base endpoint (also comes from `DEFAULT_ENDPOINT`)
 - `--model`: model name; auto-detected from `/v1/models` if omitted
-- `--data-dir`: dataset/cache directory (default comes from `DEFAULT_DATA_DIR`, usually `/mnt/gpfs/llm-datasets`)
+- `--data-dir`: dataset/cache directory (also comes from `DEFAULT_DATA_DIR`)
 - `--clients`: number of concurrent clients
 - `--truncate`: trim oversized payloads to fit detected model context
 - `--stop-after`: stop after N entries per benchmark
