@@ -3,9 +3,9 @@ import math
 import queue
 import random
 import time
-from typing import Optional
+from typing import Optional, Tuple, Dict
 
-from plugins.simulator.text_sources import (
+from .text_sources import (
     TaskType,
     TextSource,
     build_prompt_pair,
@@ -14,8 +14,7 @@ from plugins.simulator.text_sources import (
 from src.runner import Runner
 from src.runner.stats import RunnerStats
 from src.tokens import truncate_payload
-
-### default parameters ###
+from src.utils import assert_server_up, auto_detect_model, detect_max_model_len
 
 PROMPT_RATIO = 1.0 / 3.0
 REQUEST_INTERVAL_S = 1.0
@@ -25,8 +24,19 @@ MIN_PROMPT_TOKENS = 16
 MIN_GEN_TOKENS = 16
 
 
-def _split_tokens(total_tokens: int) -> tuple[int, int]:
-    """Split *total_tokens* into (prompt_tokens, gen_tokens)."""
+def _split_tokens(total_tokens: int) -> Tuple[int, int]:
+    """Split total tokens into (prompt_tokens, gen_tokens).
+    
+    Parameters
+    ----------
+    total_tokens : int
+        Total number of tokens.
+
+    Returns
+    -------
+    tuple[int, int]
+        Prompt tokens and output tokens number.
+    """
 
     usable = max(1, total_tokens - 2)
     prompt_tokens = max(MIN_PROMPT_TOKENS, int(usable * PROMPT_RATIO))
@@ -41,18 +51,48 @@ def _split_tokens(total_tokens: int) -> tuple[int, int]:
 
 
 def _build_prompt(prefix_text: str, suffix: str) -> str:
-    """Concatenate the shared *prefix_text* with a task-instruction *suffix*."""
+    """Concatenate the shared *prefix_text* with a task-instruction *suffix*.
+    
+    Parameters
+    ----------
+    prefix_test : str
+    suffix : str
+
+    Returns
+    -------
+    prompt : str
+    """
 
     return f"{prefix_text}\n\n{suffix}"
 
 
-def _send_request(
+def _build_payload(
     endpoint: str,
     model: str,
     prompt: str,
     prompt_tokens: int,
     gen_tokens: int,
-) -> dict:
+) -> Dict:
+    """Build the payload of request.
+
+    Parameters
+    ----------
+    endpoint : str
+        vLLM address.
+    model : str
+        Model name.
+    prompt : str
+        Payload prompt.
+    prompt_tokens : int
+        Prompt token size.
+    gen_tokens : int
+        Response token size.
+
+    Returns
+    -------
+    payload : dict
+    """
+    
     payload: dict = {
         "model": model,
         "prompt": prompt,
@@ -78,13 +118,13 @@ def run_simulator(
     enable_metrics: bool = False,
     task: Optional[TaskType] = None,
     cache_dir: Optional[str] = None,
+    seed: int = 42,
     utilization_perc: float = 100.0,
     request_interval_s: float = REQUEST_INTERVAL_S,
     run_interval_s: float = RUN_INTERVAL_S,
     request_timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S,
 ) -> None:
-    """
-    Fire synthetic requests to simulate KV-cache usage with prefix sharing.
+    """Fire synthetic requests to simulate KV-cache usage with prefix sharing.
 
     The shared prefix is a real English passage drawn from *source_type*.
     Each request appends a different task instruction (summarise, QA, explain,
@@ -93,62 +133,64 @@ def run_simulator(
 
     Parameters
     ----------
-    endpoint:
+    endpoint : str
         Base URL of the OpenAI-compatible inference server.
-    model:
+    model : str
         Model identifier served at *endpoint*.
-    max_model_len:
+    max_model_len : int
         Maximum context length (in tokens) supported by the model.
-    total_kv_tokens:
+    total_kv_tokens : int
         Target number of KV tokens to fill per run.
-    prefix_length_perc:
-        Percentage (0–100) of each prompt that is the *shared prefix*.
+    prefix_length_perc : float
+        Percentage (0 - 100) of each prompt that is the *shared prefix*.
         The remaining percentage is the task-instruction suffix.
-    n_runs:
+    n_runs : int
         How many full simulation cycles to execute.
-    source_type:
+    source_type : str
         Text backend for generating the English passage.
         ``"wikitext"`` (default) | ``"squad"`` | ``"wikipedia"``.
-    task:
+    task : TaskType
         Force a specific :class:`~text_sources.TaskType` for every request.
         ``None`` (default) rotates through all task types randomly.
-    cache_dir:
+    cache_dir : str
         HuggingFace dataset cache directory (ignored for ``"wikipedia"``).
-    utilization_perc:
-        Fraction of *total_kv_tokens* to actually target (0–100).
-    request_interval_s:
+    seed : int
+        Seed for random population (default 42).
+    utilization_perc : float
+        Fraction of *total_kv_tokens* to actually target (0 - 100).
+    request_interval_s : float
         Seconds to wait between requests within a run.
-    run_interval_s:
+    run_interval_s : float
         Seconds to wait between runs.
-    request_timeout_s:
+    request_timeout_s : float
         Per-request HTTP timeout in seconds.
     """
 
     completions_url = f"{endpoint.rstrip('/')}/v1/completions"
 
-    # ---- KV-token budget -------------------------------------------------
+    # KV-token budget
     effective_kv = max(1, int(math.ceil(total_kv_tokens * (utilization_perc / 100.0))))
     max_single = max(1, max_model_len - 2)
     target_tokens = min(effective_kv, max_single)
 
-    # ---- Prompt / generation split ----------------------------------------
+    # prompt / generation split
     prompt_tokens, gen_tokens = _split_tokens(target_tokens + 2)
 
-    # ---- Prefix / suffix split (in tokens) --------------------------------
+    # prefix / suffix split (in tokens)
     prefix_frac = max(0.0, min(1.0, prefix_length_perc / 100.0))
     prefix_tokens = max(1, int(prompt_tokens * prefix_frac))
     suffix_tokens = max(1, prompt_tokens - prefix_tokens)
 
-    # ---- How many requests per run? ---------------------------------------
+    # how many requests per run
     actual_req_tokens = prompt_tokens + gen_tokens
     requests_per_run = max(1, math.ceil(effective_kv / max(1, actual_req_tokens)))
 
-    # ---- Approximate character budget for the passage --------------------
+    # approximate character budget for the passage
     # ~4 chars per sub-word token is a reasonable heuristic.
     _CHARS_PER_TOKEN = 4
     prefix_chars = prefix_tokens * _CHARS_PER_TOKEN
 
-    # ---- Report ----------------------------------------------------------
+    # Report
     print("=" * 56)
     print("  KV-Cache Prefix Simulator")
     print("=" * 56)
@@ -176,13 +218,13 @@ def run_simulator(
         )
     print("=" * 56)
 
-    # ---- Build the shared prefix via the text source ---------------------
+    # build the shared prefix via the text source
     print(f"\nLoading text source '{source_type}'…")
     source: TextSource = make_source(source_type, cache_dir=cache_dir, seed=42)
     
-    # Deterministic seed=42 → same passage every time this function is called,
+    # deterministic seed, same passage every time this function is called,
     # which is exactly what we want so the KV cache prefix is stable across runs.
-    seed_rng = random.Random(42)
+    seed_rng = random.Random(seed)
     pair = build_prompt_pair(
         source,
         task=task,
@@ -196,9 +238,9 @@ def run_simulator(
     print(f"  «{prefix_text[:160].rstrip()}…»")
     print(f"  Task: {pair.task.value}\n")
 
-    suffix_rng = random.Random()  # unseeded → fresh suffix templates each run
+    suffix_rng = random.Random()  # unseeded, fresh suffix templates each run
 
-    # Reuse the common request execution path used by benchmarks.
+    # reuse the common request execution path used by benchmarks.
     jobs: "queue.Queue[dict | None]" = queue.Queue()
     stats = RunnerStats()
     runner = Runner(
@@ -211,13 +253,13 @@ def run_simulator(
     )
     runner.start()
 
-    # ---- Run loop --------------------------------------------------------
+    # run loop
     for run_idx in range(n_runs):
         print(f"─── Run {run_idx + 1}/{n_runs} " + "─" * 40)
         completed = 0
 
         for req_idx in range(requests_per_run):
-            # Build a fresh suffix for each request (different task template
+            # build a fresh suffix for each request (different task template
             # each time so the suffix region always causes a cache miss).
             req_pair = build_prompt_pair(
                 source,
@@ -226,20 +268,24 @@ def run_simulator(
                 max_prefix_chars=prefix_chars * 2,
                 rng=suffix_rng,
             )
-            # Override prefix with the fixed deterministic one so the server
+
+            # override prefix with the fixed deterministic one so the server
             # sees the exact same prefix tokens on every request.
             prompt = _build_prompt(prefix_text, req_pair.suffix)
 
             label = f"  [{req_idx + 1:>3}/{requests_per_run}] task={req_pair.task.value:<10}"
             print(label, end=" ", flush=True)
 
-            payload = _send_request(
+            # build a payload
+            payload = _build_payload(
                 endpoint=endpoint,
                 model=model,
                 prompt=prompt,
                 prompt_tokens=prompt_tokens,
                 gen_tokens=gen_tokens,
             )
+
+            # send it to runner
             jobs.put(
                 {
                     "name": "simulator",
@@ -248,6 +294,8 @@ def run_simulator(
                     "payload": payload,
                 }
             )
+
+            # wait for job to be finished
             jobs.join()
 
             completed += actual_req_tokens
@@ -264,54 +312,32 @@ def run_simulator(
         if run_idx < n_runs - 1:
             time.sleep(run_interval_s)
 
+    # terminate the runner thread
     jobs.put(None)
     jobs.join()
     runner.join()
 
+    # print the summary of benchmark
     summary = stats.stats()
-    print("\n" + "=" * 56)
-    print("  Simulation complete.")
-    print("=" * 56)
-    print(
-        f"  Requests: {summary['total_requests']}, ok: {summary['success']}, failed: {summary['error'] + summary['timeout']}"
-    )
-    print(f"  Total request bytes : {summary['total_request_bytes']}")
-    print(f"  Total response bytes: {summary['total_response_bytes']}")
-    print(f"  Avg latency         : {summary['avg_latency_ms']:.2f} ms")
-    print(f"  P95 latency         : {summary['p95_latency_ms']:.2f} ms")
+
+    n = summary["total_requests"]
+    ok = summary["success"]
+    fail = summary["error"] + summary["timeout"]
+    total_request_bytes = summary["total_request_bytes"]
+    total_response_bytes = summary["total_response_bytes"]
+    average_latency = summary["avg_latency_ms"]
+    p95_latency = summary["p95_latency_ms"]
+
+    print(f"--- {n} requests, {ok} ok, {fail} failed ---")
+    print(f"Total request bytes: {total_request_bytes}")
+    print(f"Total response bytes: {total_response_bytes}")
+    print(f"Average latency: {average_latency:.2f} ms")
+    print(f"95th percentile latency: {p95_latency:.2f} ms")
+
+    # print vLLM metrics if available
     vllm_metrics = stats.vllm_stats()
     for metric_name, value in vllm_metrics.items():
-        print(f"  vllm:'{metric_name}': {value}")
-
-
-def simulate(
-    endpoint: str,
-    model: str,
-    max_model_len: int,
-    total_kv_tokens: int,
-    prefix_length_perc: float = 50.0,
-    n_runs: int = 1,
-    enable_metrics: bool = False,
-    source_type: str = "wikitext",
-    task: Optional[TaskType] = None,
-    cache_dir: Optional[str] = None,
-    utilization_perc: float = 100.0,
-) -> None:
-    """Public entry point for the KV-cache prefix simulator."""
-
-    run_simulator(
-        endpoint=endpoint,
-        model=model,
-        max_model_len=max_model_len,
-        total_kv_tokens=total_kv_tokens,
-        prefix_length_perc=prefix_length_perc,
-        n_runs=n_runs,
-        source_type=source_type,
-        task=task,
-        enable_metrics=enable_metrics,
-        cache_dir=cache_dir,
-        utilization_perc=utilization_perc,
-    )
+        print(f"vllm:'{metric_name}': {value}")
 
 
 def register_parser(
@@ -356,6 +382,12 @@ def register_parser(
         help="Task type for simulator requests (default: random)",
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Seed for random population",
+    )
+    parser.add_argument(
         "--utilization-perc",
         type=float,
         default=100.0,
@@ -384,17 +416,43 @@ def register_parser(
 
 def run_from_args(args: argparse.Namespace) -> None:
     """Run simulator from parsed CLI args."""
+
+    # get simulate task
     simulate_task = TaskType(args.task) if args.task else None
+
+    # extract the endpoint and datasets directory
+    endpoint = args.endpoint
+
+    # check if server is healthy
+    print(f"[CHECK] Checking server at {endpoint}")
+    try:
+        assert_server_up(endpoint)
+    except Exception as e:
+        raise RuntimeError(f"Cannot reach server at {endpoint}: {e}")
+    print("[CHECK] Server is up.")
+
+    # detect the model
+    model = args.model or auto_detect_model(endpoint)
+    print(f"[CHECK] Model: {model}")
+
+    # get maximum model size
+    max_model_len = detect_max_model_len(
+        endpoint, model, timeout_s=args.request_timeout_s
+    )
+    print(f"[CHECK] Max model length: {max_model_len}")
+
+    # call run simulator
     run_simulator(
         endpoint=args.endpoint,
-        model=args.resolved_model,
-        max_model_len=args.max_model_len,
+        model=model,
+        max_model_len=max_model_len,
         total_kv_tokens=args.total_kv_tokens,
         prefix_length_perc=args.prefix_length_perc,
         n_runs=args.n_runs,
         source_type=args.source_type,
         task=simulate_task,
         cache_dir=args.cache_dir,
+        seed=args.seed,
         utilization_perc=args.utilization_perc,
         request_interval_s=args.request_interval_s,
         run_interval_s=args.run_interval_s,
