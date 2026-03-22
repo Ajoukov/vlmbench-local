@@ -193,7 +193,7 @@ class Runner(threading.Thread):
 
         # log the process
         print(
-            f"[runner-{self.id}] [{http_status}] {name} "
+            f"[runner-{self.id()}] [{http_status}] {name} "
             f"latency={http_latency:.2f}ms "
             f"req={http_req_bytes}B "
             f"resp={http_res_bytes}B "
