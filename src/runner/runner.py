@@ -197,5 +197,6 @@ class Runner(threading.Thread):
             f"latency={http_latency:.2f}ms "
             f"req={http_req_bytes}B "
             f"resp={http_res_bytes}B "
+            f"\nstart={start} , end={start + (http_latency / 1000)}",
             f"\n{metrics_str}"
         )
