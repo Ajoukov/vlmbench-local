@@ -3,7 +3,12 @@ import math
 import queue
 import random
 import time
-from typing import Optional, Tuple, Dict
+from typing import Dict, Optional, Tuple
+
+from src.runner import Runner
+from src.runner.stats import RunnerStats
+from src.tokens import truncate_payload
+from src.utils import assert_server_up, auto_detect_model, detect_max_model_len
 
 from .text_sources import (
     TaskType,
@@ -11,10 +16,6 @@ from .text_sources import (
     build_prompt_pair,
     make_source,
 )
-from src.runner import Runner
-from src.runner.stats import RunnerStats
-from src.tokens import truncate_payload
-from src.utils import assert_server_up, auto_detect_model, detect_max_model_len
 
 PROMPT_RATIO = 1.0 / 3.0
 REQUEST_INTERVAL_S = 1.0
@@ -26,7 +27,7 @@ MIN_GEN_TOKENS = 16
 
 def _split_tokens(total_tokens: int) -> Tuple[int, int]:
     """Split total tokens into (prompt_tokens, gen_tokens).
-    
+
     Parameters
     ----------
     total_tokens : int
@@ -52,7 +53,7 @@ def _split_tokens(total_tokens: int) -> Tuple[int, int]:
 
 def _build_prompt(prefix_text: str, suffix: str) -> str:
     """Concatenate the shared *prefix_text* with a task-instruction *suffix*.
-    
+
     Parameters
     ----------
     prefix_test : str
@@ -92,7 +93,7 @@ def _build_payload(
     -------
     payload : dict
     """
-    
+
     payload: dict = {
         "model": model,
         "prompt": prompt,
@@ -123,6 +124,8 @@ def run_simulator(
     request_interval_s: float = REQUEST_INTERVAL_S,
     run_interval_s: float = RUN_INTERVAL_S,
     request_timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S,
+    num_clients: int = 1,
+    suffix_mode: str = "fixed",
 ) -> None:
     """Fire synthetic requests to simulate KV-cache usage with prefix sharing.
 
@@ -164,6 +167,13 @@ def run_simulator(
         Seconds to wait between runs.
     request_timeout_s : float
         Per-request HTTP timeout in seconds.
+    num_clients : int
+        Number of concurrent clients (default 1). Single client if 1,
+        multi-client mode if > 1.
+    suffix_mode : str
+        Suffix selection mode: ``"fixed"`` (same suffix with prefix prefix)
+        or ``"random"`` (randomly select suffix for each request).
+        For multi-client with "random", adds randomness in both client and suffix selection.
     """
 
     completions_url = f"{endpoint.rstrip('/')}/v1/completions"
@@ -212,6 +222,10 @@ def run_simulator(
     print(f"  Actual KV / request       : {actual_req_tokens}")
     print(f"  Requests per run          : {requests_per_run}")
     print(f"  Number of runs (N)        : {n_runs}")
+    print(
+        f"  Client configuration      : {num_clients} {'client' if num_clients == 1 else 'clients'}"
+    )
+    print(f"  Suffix mode               : {suffix_mode}")
     if effective_kv > max_single:
         print(
             "  [WARN] Target exceeds single-request capacity; capped at max_model_len."
@@ -221,7 +235,7 @@ def run_simulator(
     # build the shared prefix via the text source
     print(f"\nLoading text source '{source_type}'…")
     source: TextSource = make_source(source_type, cache_dir=cache_dir, seed=42)
-    
+
     # deterministic seed, same passage every time this function is called,
     # which is exactly what we want so the KV cache prefix is stable across runs.
     seed_rng = random.Random(seed)
@@ -240,18 +254,36 @@ def run_simulator(
 
     suffix_rng = random.Random(seed)
 
+    # for fixed mode, generate client suffixes deterministically
+    client_suffixes: Dict[int, str] = {}
+    if suffix_mode == "fixed":
+        for client_id in range(num_clients):
+            client_pair = build_prompt_pair(
+                source,
+                task=task,
+                min_prefix_chars=max(100, prefix_chars // 2),
+                max_prefix_chars=prefix_chars * 2,
+                rng=suffix_rng,
+            )
+            client_suffixes[client_id] = client_pair.suffix
+
     # reuse the common request execution path used by benchmarks.
     jobs: "queue.Queue[dict | None]" = queue.Queue()
     stats = RunnerStats()
-    runner = Runner(
-        runner_id=1,
-        endpoint=endpoint,
-        jobs=jobs,
-        stats=stats,
-        request_timeout=request_timeout_s,
-        enable_metrics=enable_metrics,
-    )
-    runner.start()
+    runners = [
+        Runner(
+            runner_id=x,
+            endpoint=endpoint,
+            jobs=jobs,
+            stats=stats,
+            request_timeout=request_timeout_s,
+            enable_metrics=enable_metrics,
+        )
+        for x in range(num_clients)
+    ]
+
+    for r in runners:
+        r.start()
 
     # run loop
     for run_idx in range(n_runs):
@@ -259,21 +291,32 @@ def run_simulator(
         completed = 0
 
         for req_idx in range(requests_per_run):
-            # build a fresh suffix for each request (different task template
-            # each time so the suffix region always causes a cache miss).
-            req_pair = build_prompt_pair(
-                source,
-                task=task,
-                min_prefix_chars=max(100, prefix_chars // 2),
-                max_prefix_chars=prefix_chars * 2,
-                rng=suffix_rng,
-            )
+            # handle multi-client requests
+            if num_clients > 1:
+                # distribute requests across clients
+                client_id = req_idx % num_clients
+            else:
+                client_id = 0
 
-            # override prefix with the fixed deterministic one so the server
-            # sees the exact same prefix tokens on every request.
-            prompt = _build_prompt(prefix_text, req_pair.suffix)
+            # determine suffix based on mode
+            if suffix_mode == "fixed":
+                # use pre-generated client-specific suffix
+                suffix = client_suffixes[client_id]
+            else:  # random mode
+                # generate new suffix for each request
+                req_pair = build_prompt_pair(
+                    source,
+                    task=task,
+                    min_prefix_chars=max(100, prefix_chars // 2),
+                    max_prefix_chars=prefix_chars * 2,
+                    rng=suffix_rng,
+                )
+                suffix = req_pair.suffix
 
-            label = f"  [{req_idx + 1:>3}/{requests_per_run}] task={req_pair.task.value:<10}"
+            # build the prompt with prefix and suffix
+            prompt = _build_prompt(prefix_text, suffix)
+
+            label = f"  [{req_idx + 1:>3}/{requests_per_run}] client={client_id:<2}"
             print(label, end=" ", flush=True)
 
             # build a payload
@@ -285,7 +328,7 @@ def run_simulator(
                 gen_tokens=gen_tokens,
             )
 
-            # send it to runner
+            # queue the request (do not wait for completion to enable concurrency)
             jobs.put(
                 {
                     "name": "simulator",
@@ -295,15 +338,15 @@ def run_simulator(
                 }
             )
 
-            # wait for job to be finished
-            jobs.join()
-
             completed += actual_req_tokens
             kv_filled = min(completed, effective_kv)
             print(f"KV filled: {kv_filled:>8} / {effective_kv}")
 
             if req_idx < requests_per_run - 1:
                 time.sleep(request_interval_s)
+
+        # wait for all requests in this run to complete
+        jobs.join()
 
         print(
             f"  Run {run_idx + 1} complete. Total KV filled: {min(completed, effective_kv)}/{effective_kv}"
@@ -313,9 +356,13 @@ def run_simulator(
             time.sleep(run_interval_s)
 
     # terminate the runner thread
-    jobs.put(None)
+    for _ in runners:
+        jobs.put(None)
+
     jobs.join()
-    runner.join()
+
+    for r in runners:
+        r.join()
 
     # print the summary of benchmark
     summary = stats.stats()
@@ -411,6 +458,18 @@ def register_parser(
         default=DEFAULT_REQUEST_TIMEOUT_S,
         help=f"HTTP timeout per request in seconds (default: {DEFAULT_REQUEST_TIMEOUT_S})",
     )
+    parser.add_argument(
+        "--num-clients",
+        type=int,
+        default=1,
+        help="Number of concurrent clients (default: 1)",
+    )
+    parser.add_argument(
+        "--suffix-mode",
+        choices=["fixed", "random"],
+        default="fixed",
+        help="Suffix selection mode: 'fixed' uses same suffix per client, 'random' generates new suffix for each request (default: fixed)",
+    )
     parser.set_defaults(plugin_runner=run_from_args)
 
 
@@ -458,4 +517,6 @@ def run_from_args(args: argparse.Namespace) -> None:
         run_interval_s=args.run_interval_s,
         request_timeout_s=args.request_timeout_s,
         enable_metrics=args.enable_prometheus_metrics,
+        num_clients=args.num_clients,
+        suffix_mode=args.suffix_mode,
     )
