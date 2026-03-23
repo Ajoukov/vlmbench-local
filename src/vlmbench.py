@@ -65,6 +65,12 @@ class VLMBench:
             action="store_true",
             help="Enable Prometheus metrics collection (fetches cumulative values from /metrics API before and after benchmarks, and shows the differences)",
         )
+        common.add_argument(
+            "--export-output",
+            type=str,
+            default=None,
+            help="Export all benchmark results to a file (in addition to console output; specify the file path as the argument)",
+        )
 
         # subparser groups
         subparsers = ap.add_subparsers(dest="command")
@@ -444,6 +450,13 @@ class VLMBench:
         self.args = self.parser.parse_args(argv)
         if self.args.command is None:
             raise RuntimeError("No command specified")
+        
+        # check if output export is given
+        if hasattr(self.args, "export_output") and self.args.export_output:
+            from src.tee import make_tee
+
+            make_tee(self.args.export_output)
+            print(f"[CHECK] Exporting output to {self.args.export_output}")
 
         # run `bench` group
         if self.args.command == "bench":
