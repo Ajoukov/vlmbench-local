@@ -1,7 +1,7 @@
 import os
 from typing import Any, Dict
 
-# Default values for environment variables
+# default values for environment variables
 REQUEST_TIMEOUT = 12  # seconds
 DEFAULT_ENDPOINT = "http://127.0.0.1:8080"  # openai endpoint
 DEFAULT_DATA_DIR = "llm-datasets"  # default data directory for datasets

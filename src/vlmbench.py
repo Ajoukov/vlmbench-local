@@ -1,5 +1,4 @@
 import os
-import random
 import sys
 import time
 from typing import List, Optional
@@ -85,11 +84,9 @@ class VLMBench:
         for runner in self._runners:
             runner.start()
 
-        # keep track of request count
+        # keep track of request count and last runner
         request_count = 0
-
-        # set random seed
-        random.seed(42)
+        last_runner = 0
 
         # call benchmark.run method to get benchmark cases sequentially
         for result in benchmark.run():
@@ -122,8 +119,10 @@ class VLMBench:
                 "payload": payload,
             }
 
-            # select a runner in random and queue the job
-            runner = random.choice(self._runners)
+            # select a runner using round-robin
+            runner = self._runners[last_runner % len(self._runners)]
+            last_runner += 1
+
             runner.queue_job(
                 {
                     "name": name,
