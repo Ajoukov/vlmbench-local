@@ -383,7 +383,6 @@ class VLMBench:
 
             # create the benchmark
             benchmark = bench_cls.create(model=model, cache_dir=data_dir)
-            benchmark.set_limit(args.stop_after)
 
             # run and update the status
             n, ok, fail = self._run_benchmark(

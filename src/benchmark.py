@@ -25,11 +25,6 @@ class Benchmark(ABC):
 
         pass
 
-    def set_limit(self, limit: int):
-        """Set a limit on the number of entries to process (for testing)."""
-
-        self.limit = limit
-
     def run_one(self):
         """Run benchmark on a single dataset entry."""
 
@@ -43,13 +38,7 @@ class Benchmark(ABC):
     def run(self):
         """Generator over the full dataset."""
 
-        count = 0
         while True:
-            if self.limit > 0 and count >= self.limit:
-                break
-
-            count += 1
-
             try:
                 yield self.run_one()
             except StopIteration:
