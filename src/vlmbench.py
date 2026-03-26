@@ -1,8 +1,7 @@
 import os
-import random
 import sys
 import time
-from typing import Any, Dict, Optional
+from typing import List, Optional
 
 from benchmarks import REGISTRY as BENCHMARK_REGISTRY
 from src import Benchmark
@@ -16,7 +15,7 @@ from src.utils.vars import init_vars
 class VLMBench:
     """Orchestrates benchmark and plugin workloads."""
 
-    def __init__(self, argv: Optional[list[str]] = None):
+    def __init__(self, argv: Optional[List[str]] = None):
         """Initialize variables and parse command-line arguments."""
 
         self.vars = init_vars()
@@ -40,7 +39,7 @@ class VLMBench:
 
     def _list_plugins(self) -> None:
         """List all available plugins."""
-        
+
         from plugins import list_all
 
         print("Available plugins:")
@@ -56,9 +55,6 @@ class VLMBench:
         truncate: bool = False,
         max_model_len: int = 0,
         enable_metrics: bool = False,
-        random_populate: bool = False,
-        seed: int | None = None,
-        random_batch_size: int = 100,
     ):
         """Run a benchmark."""
 
@@ -83,33 +79,6 @@ class VLMBench:
         # start each runner thread
         for runner in self._runners:
             runner.start()
-
-        # create a random range if random-populate is enabled
-        rng = random.Random(seed) if random_populate else None
-        if random_populate:
-            seed_info = "None" if seed is None else str(seed)
-            print(
-                f"[CHECK] {name}: random populate enabled (seed={seed_info}, batch_size={random_batch_size})"
-            )
-
-        def _flush_random_batch(batch_templates: list[Dict[str, Any]]) -> None:
-            # shuffle each client view independently while keeping batch memory bounded
-            for runner in self._runners:
-                shuffled = list(batch_templates)
-                rng.shuffle(shuffled)
-
-                for selected in shuffled:
-                    runner.queue_job(
-                        {
-                            "name": name,
-                            "url": selected["url"],
-                            "headers": selected["headers"],
-                            "payload": selected["payload"],
-                        }
-                    )
-
-        # create a batch template to store prompts
-        batch_templates: list[Dict[str, Any]] = []
 
         # call benchmark.run method to get benchmark cases sequentially
         for result in benchmark.run():
@@ -142,27 +111,15 @@ class VLMBench:
                 "payload": payload,
             }
 
-            # if random populate is enabled, store it and flush it onces it reaches the batch size
-            if random_populate:
-                batch_templates.append(template)
-                if len(batch_templates) >= random_batch_size:
-                    _flush_random_batch(batch_templates)
-                    batch_templates.clear()
-            else:
-                # in normal mode, send the job to each client
-                for runner in self._runners:
-                    runner.queue_job(
-                        {
-                            "name": name,
-                            "url": template["url"],
-                            "headers": template["headers"],
-                            "payload": template["payload"],
-                        }
-                    )
-
-        # flush the remaining populated benchmarks
-        if random_populate and batch_templates:
-            _flush_random_batch(batch_templates)
+            for runner in self._runners:
+                runner.queue_job(
+                    {
+                        "name": name,
+                        "url": template["url"],
+                        "headers": template["headers"],
+                        "payload": template["payload"],
+                    }
+                )
 
         # send a None job to stop runners after processing all requests
         for runner in self._runners:
@@ -215,11 +172,6 @@ class VLMBench:
 
         if args.clients < 1:
             raise RuntimeError("Invalid number of clients, --clients must be >= 1.")
-
-        if args.random_batch_size < 1:
-            raise RuntimeError(
-                "Invalid random batch size, --random-batch-size must be >= 1."
-            )
 
         for name in args.benchmarks:
             if name not in BENCHMARK_REGISTRY:
@@ -278,9 +230,6 @@ class VLMBench:
                 truncate=args.truncate,
                 max_model_len=max_model_len,
                 enable_metrics=args.enable_prometheus_metrics,
-                random_populate=args.random_populate,
-                seed=args.seed,
-                random_batch_size=args.random_batch_size,
             )
 
             total_n += n

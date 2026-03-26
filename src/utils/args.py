@@ -72,23 +72,6 @@ def build_parser(vars: Dict[str, str]) -> argparse.ArgumentParser:
         help="Number of concurrent clients (default: 1)",
     )
     bench_parser.add_argument(
-        "--random-populate",
-        action="store_true",
-        help="Populate requests by random sampling from benchmark entries",
-    )
-    bench_parser.add_argument(
-        "--seed",
-        type=int,
-        default=None,
-        help="Seed for random population (deterministic when used with --random-populate)",
-    )
-    bench_parser.add_argument(
-        "--random-batch-size",
-        type=int,
-        default=100,
-        help="Number of entries to buffer per batch in --random-populate mode (default: 100)",
-    )
-    bench_parser.add_argument(
         "benchmarks",
         nargs="*",
         help="Benchmark names to run",
