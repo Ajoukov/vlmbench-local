@@ -11,60 +11,43 @@ from src.runner.stats import RunnerStats
 
 
 class Runner(threading.Thread):
-    """Runner thread processes jobs from a shared queue, send requests and records statistics."""
+    """Runner thread processes jobs from a queue, send requests, and records statistics."""
 
     def __init__(
         self,
         runner_id: int,
         endpoint: str,
-        jobs: "queue.Queue[Optional[Dict[str, Any]]]",
         stats: RunnerStats,
         request_timeout: int,
         enable_metrics: bool = False,
     ):
-        """Initialize the Runner thread.
-
-        Parameters
-        ----------
-        runner_id : int
-            A unique identifier for this runner thread.
-        endpoint : str
-            The base URL of the VLLM server to which the runner will send requests.
-        jobs : queue.Queue[Optional[Dict[str, Any]]]
-            A thread-safe queue from which the runner will consume jobs.
-        stats : RunnerStats
-            A shared statistics collector that the runner will use to record request outcomes.
-        request_timeout : int
-            The timeout in seconds for each request sent by the runner.
-        enable_metrics : bool, optional
-            Whether to enable metrics collection from the /metrics endpoint (default is False).
-        """
+        """Initialize a Runner thread."""
 
         super().__init__(name=f"runner-{runner_id}", daemon=True)
 
-        self._runner_id = runner_id
+        self._runner_id = f"runner-{runner_id}"
         self._endpoint = endpoint
         self._rto = request_timeout
-        self._jobs = jobs
         self._stats = stats
         self._enable_metrics = enable_metrics
+
+        self._jobs = queue.Queue[Optional[Dict[str, Any]]]()
         self._stop_event = threading.Event()
+
+    def id(self) -> str:
+        """Get the unique identifier of this runner."""
+
+        return self._runner_id
 
     def stop(self) -> None:
         """Stop the thread by setting the stop event."""
 
         self._stop_event.set()
 
-    def id(self) -> int:
-        """Get the unique identifier of this runner.
+    def queue_job(self, job: Dict[str, Any]) -> None:
+        """Add a job to the queue for processing."""
 
-        Returns
-        -------
-        int
-            The unique identifier of this runner.
-        """
-
-        return self._runner_id
+        self._jobs.put(job)
 
     def run(self) -> None:
         """Main loop of the runner thread.
@@ -73,6 +56,7 @@ class Runner(threading.Thread):
         """
 
         while True:
+            # if a stop signal is received, exit the loop
             if self._stop_event.is_set():
                 return
 
@@ -198,5 +182,5 @@ class Runner(threading.Thread):
             f"req={http_req_bytes}B "
             f"resp={http_res_bytes}B "
             f"\nstart={start} , end={start + (http_latency / 1000)}",
-            f"\n{metrics_str}"
+            f"\n{metrics_str}",
         )
