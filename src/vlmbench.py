@@ -56,8 +56,9 @@ class VLMBench:
         self,
         name: str,
         benchmark: Benchmark,
-        truncate: bool = False,
+        stop_after: int = 0,
         max_model_len: int = 0,
+        truncate: bool = False,
         enable_metrics: bool = False,
     ):
         """Run a benchmark."""
@@ -83,6 +84,9 @@ class VLMBench:
         # start each runner thread
         for runner in self._runners:
             runner.start()
+
+        # keep track of request count
+        request_count = 0
 
         # set random seed
         random.seed(42)
@@ -128,6 +132,11 @@ class VLMBench:
                     "payload": template["payload"],
                 }
             )
+
+            # check stop after condition
+            request_count += 1
+            if stop_after > 0 and request_count > stop_after:
+                break
 
         # send a None job to stop runners after processing all requests
         for runner in self._runners:
@@ -234,8 +243,9 @@ class VLMBench:
             n, ok, fail = self._run_benchmark(
                 name=name,
                 benchmark=benchmark,
-                truncate=args.truncate,
+                stop_after=args.stop_after,
                 max_model_len=max_model_len,
+                truncate=args.truncate,
                 enable_metrics=args.enable_prometheus_metrics,
             )
 
@@ -271,9 +281,6 @@ class VLMBench:
         # check the data directory
         os.makedirs(self._data_dir, exist_ok=True)
         print(f"[CHECK] Data directory: {self._data_dir}")
-
-        # set the cache directory
-        args.cache_dir = self._data_dir
 
         # run the plugin
         args.plugin_runner(args)

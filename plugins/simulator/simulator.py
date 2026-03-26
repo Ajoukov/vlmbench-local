@@ -503,7 +503,7 @@ def run_from_args(args: argparse.Namespace) -> None:
         n_runs=args.n_runs,
         source_type=args.source_type,
         task=simulate_task,
-        cache_dir=args.cache_dir,
+        cache_dir=args.data_dir,
         seed=args.seed,
         utilization_perc=args.utilization_perc,
         request_interval_s=args.request_interval_s,
