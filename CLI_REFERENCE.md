@@ -51,9 +51,6 @@ python3 main.py bench [BENCH_OPTIONS] BENCHMARK [BENCHMARK ...]
 | `--stop-after`        | int             | `0`                      | Limit entries processed per benchmark. `0` means no limit.           |
 | `--truncate`          | flag            | off                      | Truncate payloads that exceed model context length.                  |
 | `--clients`           | int             | `1`                      | Number of concurrent client workers (must be >= 1).                  |
-| `--random-populate`   | flag            | off                      | Randomly sample benchmark entries instead of strict sequential flow. |
-| `--seed`              | int             | `None`                   | RNG seed for deterministic random population behavior.               |
-| `--random-batch-size` | int             | `100`                    | Buffer size per random population batch (must be >= 1).              |
 | `benchmarks`          | positional list | required unless `--list` | One or more benchmark names to run.                                  |
 
 ### Bench Examples
@@ -86,17 +83,6 @@ Enable truncation for strict context-window fitting:
 
 ```bash
 python3 main.py bench --truncate local_longbench_qmsum
-```
-
-Deterministic random sampling:
-
-```bash
-python3 main.py bench \
-  --random-populate \
-  --seed 42 \
-  --random-batch-size 200 \
-  --clients 16 \
-  local_sharegpt
 ```
 
 ## Plugin Command

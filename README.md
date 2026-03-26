@@ -68,9 +68,6 @@ Commonly used options:
 - `--clients`: number of concurrent clients
 - `--truncate`: trim oversized payloads to fit detected model context
 - `--stop-after`: stop after N entries per benchmark
-- `--random-populate`: sample benchmark entries randomly
-- `--seed`: deterministic sampling seed for random mode
-- `--random-batch-size`: buffered random sampling batch size
 - `--enable-prometheus-metrics`: collect and print Prometheus metric deltas
 
 ### Plugin Command
@@ -124,18 +121,7 @@ python3 main.py bench --endpoint http://127.0.0.1:8080 wmt16
 python3 main.py bench --clients 16 local_alpaca local_narrativeqa
 ```
 
-### 3) Deterministic random population
-
-```bash
-python3 main.py bench \
-    --clients 32 \
-    --random-populate \
-    --seed 42 \
-    --random-batch-size 200 \
-    local_sharegpt
-```
-
-### 4) Truncation + Prometheus metrics
+### 3) Truncation + Prometheus metrics
 
 ```bash
 python3 main.py bench \
@@ -144,7 +130,7 @@ python3 main.py bench \
     local_longbench_qmsum
 ```
 
-### 5) KV-cache simulator
+### 5) KV-cache control simulator
 
 ```bash
 python3 main.py plugin simulator \

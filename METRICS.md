@@ -8,16 +8,6 @@ python3 main.py bench --enable-prometheus-metrics ...
 
 VLMBench compares snapshots before and after a run and reports metric differences (deltas), so values represent work done during your benchmark window.
 
-## How To Read These Metrics
-
-- Metrics ending in `_total` are counters.
-- Histogram metrics usually expose at least `_count` and `_sum`.
-- A quick average from histograms is:
-
-$$
-avg = \frac{sum}{count}
-$$
-
 ## Cache Efficiency Metrics
 
 ### `vllm:prefix_cache_queries_total`
@@ -31,19 +21,6 @@ $$
 - Type: `counter`
 - Meaning: number of prefix tokens served from cache.
 - Higher is generally better for repeated/shared-prefix workloads.
-
-### Prefix Cache Hit Ratio (derived)
-
-You can estimate cache effectiveness with:
-
-$$
-h = \frac{hits}{queries}
-$$
-
-Interpretation:
-
-- Near 1.0: many queried tokens are cache hits.
-- Near 0.0: little or no prefix reuse.
 
 ## Token Volume Metrics
 
@@ -107,28 +84,3 @@ Interpretation:
 - Type: `histogram`
 - Meaning: newly computed KV tokens during prefill (excluding cache hits).
 - Lower values for repeated-prefix workloads usually indicate better cache reuse.
-
-## Example Metric Snippet
-
-```txt
-# HELP vllm:prefix_cache_queries_total Prefix cache queries, in terms of number of queried tokens.
-# TYPE vllm:prefix_cache_queries_total counter
-vllm:prefix_cache_queries_total 413.0
-
-# HELP vllm:prefix_cache_hits_total Prefix cache hits, in terms of number of cached tokens.
-# TYPE vllm:prefix_cache_hits_total counter
-vllm:prefix_cache_hits_total 96.0
-```
-
-From this sample, the approximate prefix hit ratio is:
-
-$$
-\frac{96}{413} \approx 0.232 \text{ (23.2\%)}
-$$
-
-## Practical Tips
-
-- Compare metrics only across runs with similar prompts, model, and concurrency.
-- Watch TTFT and inter-token latency together; one can improve while the other worsens.
-- For prefix-sharing experiments, monitor cache hit ratio and prefill KV-computed tokens together.
-- If e2e latency rises while token counters stay similar, look for server saturation or queueing effects.
