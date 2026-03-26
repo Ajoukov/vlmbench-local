@@ -51,6 +51,34 @@ class VLMBench:
         for name in list_all():
             print(f"  {name}")
 
+    def _start_runners(self, stats: RunnerStats, enable_metrics: bool = False) -> None:
+        """Start runner threads."""
+
+        self._runners = [
+            Runner(
+                runner_id=index + 1,
+                endpoint=self._endpoint,
+                stats=stats,
+                request_timeout=self.vars["REQUEST_TIMEOUT"],
+                enable_metrics=enable_metrics,
+            )
+            for index in range(max(1, self._clients))
+        ]
+
+        for runner in self._runners:
+            runner.start()
+
+    def _stop_runners(self) -> None:
+        """Stop runner threads."""
+
+        for runner in self._runners:
+            runner.queue_job(None)  # signal to stop
+
+        for runner in self._runners:
+            runner.join()
+
+        self._runners = []
+
     def _run_benchmark(
         self,
         name: str,
@@ -68,21 +96,8 @@ class VLMBench:
         # create a thread-safe stats keeper
         stats = RunnerStats()
 
-        # create runner threads
-        self._runners = [
-            Runner(
-                runner_id=index + 1,
-                endpoint=self._endpoint,
-                stats=stats,
-                request_timeout=self.vars["REQUEST_TIMEOUT"],
-                enable_metrics=enable_metrics,
-            )
-            for index in range(max(1, self._clients))
-        ]
-
-        # start each runner thread
-        for runner in self._runners:
-            runner.start()
+        # start runner threads
+        self._start_runners(stats, enable_metrics=enable_metrics)
 
         # keep track of request count and last runner
         request_count = 0
@@ -137,13 +152,8 @@ class VLMBench:
             if stop_after > 0 and request_count > stop_after:
                 break
 
-        # send a None job to stop runners after processing all requests
-        for runner in self._runners:
-            runner.queue_job(None)
-
-        # wait for runners
-        for runner in self._runners:
-            runner.join()
+        # stop the runners and wait for them to finish
+        self._stop_runners()
 
         # print the summary of benchmark
         summary = stats.stats()
