@@ -149,7 +149,7 @@ class VLMBench:
 
             # check stop after condition
             request_count += 1
-            if stop_after > 0 and request_count > stop_after:
+            if stop_after > 0 and request_count >= stop_after:
                 break
 
         # stop the runners and wait for them to finish
