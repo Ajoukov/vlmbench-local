@@ -38,11 +38,11 @@ class LocalAlpacaBenchmark(Benchmark):
         inst = _to_text(entry.get("instruction"))
         inp = _to_text(entry.get("input"))
         prompt = inst if not inp else f"{inst}\n\nInput: {inp}"
-        opts = {"temperature": 0.0, "max_tokens": 512}
+        opts = {"temperature": 0.0, "max_tokens": 1024}
         return prompt, opts
 
     @classmethod
     def create(cls, model: str, cache_dir: str) -> "LocalAlpacaBenchmark":
-        dataset = LocalDataset("alpaca.csv", cache_dir, limit=100)
+        dataset = LocalDataset("alpaca.csv", cache_dir)
         task = Completion(model=model)
         return cls(dataset, task)

@@ -85,7 +85,7 @@ def _chat_input(entry, *conversation_keys):
     opts = {
         "messages": messages,
         "temperature": 0.7,
-        "max_tokens": 512,
+        "max_tokens": 1024,
         "top_p": 0.95,
     }
     return "", opts
@@ -99,7 +99,7 @@ class ShareGPTBenchmark(Benchmark):
 
     @classmethod
     def create(cls, model: str, cache_dir: str) -> "ShareGPTBenchmark":
-        dataset = ShareGPTDataset(cache_dir, limit=100)
+        dataset = ShareGPTDataset(cache_dir)
         task = ChatBot(model=model)
         return cls(dataset, task)
 
@@ -112,6 +112,6 @@ class LocalShareGPTBenchmark(Benchmark):
 
     @classmethod
     def create(cls, model: str, cache_dir: str) -> "LocalShareGPTBenchmark":
-        dataset = LocalDataset("sharegpt.csv", cache_dir, limit=100)
+        dataset = LocalDataset("sharegpt.csv", cache_dir)
         task = ChatBot(model=model)
         return cls(dataset, task)
