@@ -129,6 +129,10 @@ class Runner(threading.Thread):
                 timeout=self._rto,
             )
 
+            # dump the response content into a file for debugging
+            with open(f"{self.id()}-{name}-response.json", "w") as f:
+                json.dump(response.json(), f, indent=2)
+
             # calculate latency in milliseconds
             http_latency = (time.perf_counter() - start) * 1000
 
