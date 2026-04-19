@@ -5,6 +5,7 @@ from typing import Dict
 from src.benchmark import Benchmark
 
 from .alpaca import LocalAlpacaBenchmark
+from .long_doc_qa import LongDocQABenchmark
 from .longbench_qmsum import LocalLongBenchQMSumBenchmark
 from .narrativeqa import LocalNarrativeQABenchmark
 from .sharegpt import LocalShareGPTBenchmark
@@ -38,6 +39,7 @@ REGISTRY: Dict[str, Benchmark] = {
     "local_longbench_qmsum": LocalLongBenchQMSumBenchmark,
     "local_narrativeqa": LocalNarrativeQABenchmark,
     "local_sharegpt": LocalShareGPTBenchmark,
+    "long_doc_qa": LongDocQABenchmark,
     "wmt16": WMT16Benchmark,
 }
 
