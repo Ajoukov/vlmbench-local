@@ -11,6 +11,18 @@ spec:
     spec:
       shareProcessNamespace: true
       restartPolicy: Never
+      volumes:
+        - name: lmcache
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Gi
+        - name: hfcache
+          persistentVolumeClaim:
+            claimName: hfcache-pvc
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
       containers:
         - name: infinity
           image: ubuntu:22.04
@@ -34,14 +46,16 @@ spec:
                   --host 0.0.0.0 \
                   --port 8000 \
                   --max-model-len "$MAX_MODEL_LEN" \
-                  --gpu-memory-utilization 0.3 \
+                  --gpu-memory-utilization 0.35 \
+                  --swap-space 0 \
                   --kv-transfer-config "{\"kv_connector\":\"LMCacheConnectorV1\",\"kv_role\":\"kv_both\",\"kv_rank\":0,\"kv_parallel_size\":1}"
               else
                 vllm serve "$MODEL" \
                   --host 0.0.0.0 \
                   --port 8000 \
                   --max-model-len "$MAX_MODEL_LEN" \
-                  --gpu-memory-utilization 0.3
+                  --gpu-memory-utilization 0.35 \
+                  --swap-space 0
               fi
           envFrom:
             - configMapRef: { name: vllm-config }
@@ -50,6 +64,19 @@ spec:
               valueFrom: { secretKeyRef: { name: $(HF_SECRET_NAME), key: token } }
             - name: HF_TOKEN
               valueFrom: { secretKeyRef: { name: $(HF_SECRET_NAME), key: token } }
+            - name: HF_HOME
+              value: /root/.cache/huggingface
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              memory: 48Gi
+            requests:
+              nvidia.com/gpu: 1
+              memory: 40Gi
+          volumeMounts:
+            - { name: lmcache,  mountPath: /lmcache }
+            - { name: hfcache,  mountPath: /root/.cache/huggingface }
+            - { name: shm,      mountPath: /dev/shm }
           startupProbe:
             httpGet: { path: /health, port: 8000 }
             periodSeconds: 5

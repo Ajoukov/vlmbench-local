@@ -130,6 +130,7 @@ def run_simulator(
     request_timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S,
     num_clients: int = 1,
     suffix_mode: str = "fixed",
+    max_request_tokens: Optional[int] = None,
 ) -> None:
     """Fire synthetic requests to simulate KV-cache usage with prefix sharing.
 
@@ -185,6 +186,8 @@ def run_simulator(
     # kv-token budget
     effective_kv = max(1, int(math.ceil(total_kv_tokens * (utilization_perc / 100.0))))
     max_single = max(1, max_model_len - 2)
+    if max_request_tokens is not None and max_request_tokens > 0:
+        max_single = min(max_single, max_request_tokens)
     target_tokens = min(effective_kv, max_single)
 
     # prompt / generation split
@@ -331,15 +334,15 @@ def run_simulator(
             )
 
             # queue the request (do not wait for completion to enable concurrency)
-            for runner in runners:
-                runner.queue_job(
-                    {
-                        "name": "simulator",
-                        "url": completions_url,
-                        "headers": {"Content-Type": "application/json"},
-                        "payload": payload,
-                    }
-                )
+            runners[client_id].queue_job(
+                {
+                    "index": f"{run_idx + 1}.{req_idx + 1}/{requests_per_run}",
+                    "name": "simulator",
+                    "url": completions_url,
+                    "headers": {"Content-Type": "application/json"},
+                    "payload": payload,
+                }
+            )
 
             completed += actual_req_tokens
             kv_filled = min(completed, effective_kv)
@@ -468,6 +471,12 @@ def register_parser(
         default="fixed",
         help="Suffix selection mode: 'fixed' uses same suffix per client, 'random' generates new suffix for each request (default: fixed)",
     )
+    parser.add_argument(
+        "--max-request-tokens",
+        type=int,
+        default=None,
+        help="Optional hard cap on per-request tokens (prompt+gen). Overrides the max_model_len-based default, useful for fitting many small requests into a fixed total-kv-tokens budget.",
+    )
     parser.set_defaults(plugin_runner=run_from_args)
 
 
@@ -517,4 +526,5 @@ def run_from_args(args: argparse.Namespace) -> None:
         enable_metrics=args.enable_prometheus_metrics,
         num_clients=args.num_clients,
         suffix_mode=args.suffix_mode,
+        max_request_tokens=args.max_request_tokens,
     )

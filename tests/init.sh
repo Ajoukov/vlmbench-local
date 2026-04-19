@@ -5,15 +5,20 @@ cd "$(dirname "$0")"
 # ---- Config (fill in before running) ----
 namespace=""
 hf_token=""
-storage_class_name="default"
+storage_class_name="gpfs-nfs"
 port_local=8080
 port_remote=8000
-MODEL_NAME="facebook/opt-125m"
-max_model_len=1000
+MODEL_NAME="Qwen/Qwen3-8B-AWQ"
+max_model_len=8192
 lmcache_enabled=true
 lmcache_chunk_size=256
-lmcache_local_cpu=true
+# LMCache CPU-RAM tier (L1 in front of disk). Keep false for single-tier
+# storage-device measurements; flip to true for tiered-cache experiments.
+lmcache_local_cpu=false
 lmcache_max_local_cpu_size=20
+# LMCache filesystem-backed tier (what the experiment actually measures).
+lmcache_local_disk="file:///lmcache"
+lmcache_max_local_disk_size=32
 
 [ -z "$namespace" ] && { echo "Error: set namespace in init.sh" >&2; exit 1; }
 [ -z "$hf_token" ] && { echo "Error: set hf_token in init.sh" >&2; exit 1; }
@@ -38,7 +43,9 @@ if [ "$lmcache_enabled" = "true" ]; then
       - LMCACHE_ENABLED=true
       - LMCACHE_CHUNK_SIZE=${lmcache_chunk_size}
       - LMCACHE_LOCAL_CPU=${lmcache_local_cpu}
-      - LMCACHE_MAX_LOCAL_CPU_SIZE=${lmcache_max_local_cpu_size}"
+      - LMCACHE_MAX_LOCAL_CPU_SIZE=${lmcache_max_local_cpu_size}
+      - LMCACHE_LOCAL_DISK=${lmcache_local_disk}
+      - LMCACHE_MAX_LOCAL_DISK_SIZE=${lmcache_max_local_disk_size}"
 else
     lmcache_literals="
       - LMCACHE_ENABLED=false"
@@ -91,15 +98,6 @@ replacements:
           - spec.template.spec.containers.[name=infinity].env.[name=HF_TOKEN].valueFrom.secretKeyRef.name
 
 patchesJson6902:
-  - target:
-      group: v1
-      version: v1
-      kind: PersistentVolumeClaim
-      name: vllm-pvc
-    patch: |-
-      - op: replace
-        path: /spec/storageClassName
-        value: ${storage_class_name}
   - target:
       group: v1
       version: v1
